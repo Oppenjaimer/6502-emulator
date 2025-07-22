@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const Memory = struct {
     pub const SIZE = 1024 * 64; // 64 KB
 
@@ -7,6 +9,14 @@ pub const Memory = struct {
         return Memory {
             .data = [_]u8{0} ** SIZE,
         };
+    }
+
+    pub fn read(self: *const Memory, addr: u16) u8 {
+        return self.data[addr];
+    }
+
+    pub fn write(self: *Memory, addr: u16, value: u8) void {
+        self.data[addr] = value;
     }
 };
 
@@ -41,7 +51,11 @@ pub const CPU = struct {
     }
 
     pub fn reset(self: *CPU) void {
-        self.pc = 0;            // TODO: Fetch from reset vector (0xFFFC/0xFFFD)
+        // Fetch PC from reset vector
+        const low: u16  = self.memory.read(0xFFFC);
+        const high: u16 = self.memory.read(0xFFFD);
+        self.pc = (high << 8) | low;
+
         self.sp = 0xFD;         // Starts at 0, then gets decremented 3 times
         self.a = 0;
         self.x = 0;
@@ -52,11 +66,13 @@ pub const CPU = struct {
 
     pub fn tick(self: *CPU) void {
         if (self.cycles == 0) {
-            // TODO: Fetch and execute instruction
-            // TODO: Set remaining cycles to instruction return value
+            const opcode = self.fetch();
+            const cycles_required = self.execute(opcode);
+            
+            self.cycles = cycles_required;
         }
 
-        self.cycles -= 1;
+        if (self.cycles > 0) self.cycles -= 1;
     }
 
     pub fn run(self: *CPU, cycles: u32) void {
@@ -65,5 +81,28 @@ pub const CPU = struct {
         while (remaining > 0) : (remaining -= 1) {
             self.tick();
         }
+    }
+
+    pub fn fetch(self: *CPU) u8 {
+        const byte = self.memory.read(self.pc);
+        self.pc += 1;
+
+        return byte;
+    }
+
+    pub fn execute(self: *CPU, opcode: u8) u32 {
+        return switch (opcode) {
+            0xA1 => self.testing(),
+            else => {
+                std.debug.print("Unimplemented opcode: '0x{X:0>2}'\n", .{opcode});
+                return 0;
+            }
+        };
+    }
+
+    pub fn testing(self: *CPU) u32 {
+        _ = self;
+        std.debug.print("Testing\n", .{});
+        return 3;
     }
 };
