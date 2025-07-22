@@ -23,6 +23,12 @@ pub const Memory = struct {
 pub const CPU = struct {
     // -------------------------------- CONSTANTS -------------------------------
 
+    pub const RESET_VECTOR: u16 = 0xFFFC;   // Load PC from reset vector
+    pub const RESET_SP:     u8  = 0xFD;     // Starts at 0, then gets decremented 3 times
+    pub const RESET_REG:    u8  = 0x00;     // Zero all registers
+    pub const RESET_STATUS: u8  = 0b100100; // Set I,U
+    pub const RESET_CYCLES: u32 = 7;        // Reset sequence takes 7 cycles
+
     pub const Flag = enum(u8) {
         C = 1 << 0, // Carry flag
         Z = 1 << 1, // Zero flag
@@ -35,6 +41,7 @@ pub const CPU = struct {
     };
 
     pub const Opcode = enum(u8) {
+        // LDA - Load accumulator
         LDA_IMM = 0xA9, LDA_ZPG = 0xA5, LDA_ZPX = 0xB5, LDA_ABS = 0xAD, LDA_ABX = 0xBD,
         LDA_ABY = 0xB9, LDA_IDX = 0xA1, LDA_IDY = 0xB1,
     };
@@ -62,17 +69,16 @@ pub const CPU = struct {
     }
 
     pub fn reset(self: *CPU) void {
-        // Fetch PC from reset vector
-        const low: u16  = self.memory.read(0xFFFC);
-        const high: u16 = self.memory.read(0xFFFD);
+        const low: u16  = self.memory.read(RESET_VECTOR + 0);
+        const high: u16 = self.memory.read(RESET_VECTOR + 1);
         self.pc = (high << 8) | low;
 
-        self.sp = 0xFD;         // Starts at 0, then gets decremented 3 times
-        self.a = 0;
-        self.x = 0;
-        self.y = 0;
-        self.status = 0b100100; // Set I, U
-        self.cycles = 7;        // Reset sequence takes 7 cycles
+        self.sp     = RESET_SP;
+        self.a      = RESET_REG;
+        self.x      = RESET_REG;
+        self.y      = RESET_REG;
+        self.status = RESET_STATUS;
+        self.cycles = RESET_CYCLES;
     }
 
     pub fn tick(self: *CPU) void {
@@ -129,7 +135,18 @@ pub const CPU = struct {
     // ------------------------------ INSTRUCTIONS ------------------------------
     // Reference: http://www.6502.org/users/obelisk/6502/reference.html
 
+    // LDA (Immediate mode)
+    // Function:    A = M
+    // Flags:       Z,N
+    fn lda_imm(self: *CPU) u32 {
+        const m = self.fetch();
+        self.a = m;
 
+        self.setFlag(.Z, m == 0x00);
+        self.setFlag(.N, isBitSet(m, 7));
+
+        return 2;
+    }
 
     // ---------------------------- HELPER FUNCTIONS ----------------------------
 
