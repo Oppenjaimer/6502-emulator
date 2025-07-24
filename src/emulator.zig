@@ -21,7 +21,9 @@ pub const Memory = struct {
 };
 
 pub const CPU = struct {
-    // -------------------------------- CONSTANTS -------------------------------
+    // --------------------------------------------------------------------------
+    //                                  CONSTANTS                                
+    // --------------------------------------------------------------------------
 
     pub const RESET_VECTOR: u16 = 0xFFFC;   // Load PC from reset vector
     pub const RESET_SP:     u8  = 0xFD;     // Starts at 0, then gets decremented 3 times
@@ -46,7 +48,9 @@ pub const CPU = struct {
         LDA_ABY = 0xB9, LDA_IDX = 0xA1, LDA_IDY = 0xB1,
     };
 
-    // --------------------------------- FIELDS ---------------------------------
+    // --------------------------------------------------------------------------
+    //                                   FIELDS                                  
+    // --------------------------------------------------------------------------
 
     pc: u16,            // Program counter
     sp: u8,             // Stack pointer
@@ -57,7 +61,9 @@ pub const CPU = struct {
     memory: *Memory,    // RAM (only device connected to bus)
     cycles: u32,        // Cycles remaining for current instruction
 
-    // ------------------------------ CORE METHODS ------------------------------
+    // --------------------------------------------------------------------------
+    //                                CORE METHODS                               
+    // --------------------------------------------------------------------------
 
     pub fn init(memory: *Memory) CPU {
         var cpu: CPU = undefined;
@@ -69,10 +75,7 @@ pub const CPU = struct {
     }
 
     pub fn reset(self: *CPU) void {
-        const low: u16  = self.memory.read(RESET_VECTOR + 0);
-        const high: u16 = self.memory.read(RESET_VECTOR + 1);
-        self.pc = (high << 8) | low;
-
+        self.pc     = self.readWord(RESET_VECTOR);
         self.sp     = RESET_SP;
         self.a      = RESET_REG;
         self.x      = RESET_REG;
@@ -83,7 +86,7 @@ pub const CPU = struct {
 
     pub fn tick(self: *CPU) void {
         if (self.cycles == 0) {
-            const fetched = self.fetch();
+            const fetched = self.fetchByte();
             const maybe_opcode = decodeOpcode(fetched);
 
             if (maybe_opcode) |opcode| {
@@ -106,11 +109,39 @@ pub const CPU = struct {
         }
     }
 
-    pub fn fetch(self: *CPU) u8 {
-        const byte = self.memory.read(self.pc);
+    pub fn readByte(self: *CPU, addr: u16) u8 {
+        return self.memory.read(addr);
+    }
+
+    pub fn readWord(self: *CPU, addr: u16) u16 {
+        const low:  u16 = self.readByte(addr + 0);
+        const high: u16 = self.readByte(addr + 1);
+
+        return (high << 8) | low;
+    }
+
+    pub fn writeByte(self: *CPU, addr: u16, value: u8) void {
+        self.memory.write(addr, value);
+    }
+
+    pub fn writeWord(self: *CPU, addr: u16, value: u16) void {
+        self.writeByte(addr + 0, value & 0x00FF);
+        self.writeByte(addr + 1, value >> 8);
+    }
+
+    pub fn fetchByte(self: *CPU) u8 {
+        const byte = self.readByte(self.pc);
         self.pc += 1;
 
         return byte;
+    }
+
+    pub fn fetchWord(self: *CPU) u16 {
+        const low:  u16 = self.fetchByte();
+        const high: u16 = self.fetchByte();
+        self.pc += 2;
+
+        return (high << 8) | low;
     }
 
     pub fn getFlag(self: *CPU, flag: Flag) bool {
@@ -124,28 +155,109 @@ pub const CPU = struct {
 
     pub fn execute(self: *CPU, opcode: Opcode) u32 {
         return switch (opcode) {
-            .LDA_IMM => self.lda_imm(),
-            else => {
-                std.debug.print("Unimplemented opcode: '0x{X:0>2}'\n", .{@intFromEnum(opcode)});
-                return 0;
-            }
+            .LDA_IMM => self.ldaImm(),
+            .LDA_ZPG => self.ldaZpg(),
+            .LDA_ZPX => self.ldaZpx(),
+            .LDA_ABS => self.ldaAbs(),
+            .LDA_ABX => self.ldaAbx(),
+            .LDA_ABY => self.ldaAby(),
+            .LDA_IDX => self.ldaIdx(),
+            .LDA_IDY => self.ldaIdy(),
         };
     }
 
-    // ------------------------------ INSTRUCTIONS ------------------------------
+    // --------------------------------------------------------------------------
+    //                                INSTRUCTIONS                               
+    // --------------------------------------------------------------------------
+
     // Reference: http://www.6502.org/users/obelisk/6502/reference.html
 
-    // LDA (Immediate mode)
+    // ------------------------- LDA - Load accumulator -------------------------
     // Function:    A = M
     // Flags:       Z,N
-    fn lda_imm(self: *CPU) u32 {
-        const m = self.fetch();
-        self.a = m;
 
+    fn lda(self: *CPU, m: u8) void {
+        self.a = m;
         self.setFlag(.Z, m == 0x00);
         self.setFlag(.N, isBitSet(m, 7));
+    }
 
+    // Immediate
+    fn ldaImm(self: *CPU) u32 {
+        const m = self.fetchByte();
+
+        self.lda(m);
         return 2;
+    }
+
+    // Zero page
+    fn ldaZpg(self: *CPU) u32 {
+        const addr = self.fetchByte();
+        const m = self.readByte(addr);
+
+        self.lda(m);
+        return 3; 
+    }
+
+    // Zero page,X
+    fn ldaZpx(self: *CPU) u32 {
+        const base_addr = self.fetchByte();
+        const addr = base_addr +% self.x;
+        const m = self.readByte(addr);
+
+        self.lda(m);
+        return 4;
+    }
+
+    // Absolute
+    fn ldaAbs(self: *CPU) u32 {
+        const addr = self.fetchWord();
+        const m = self.readByte(addr);
+
+        self.lda(m);
+        return 4;
+    }
+
+    // Absolute,X
+    fn ldaAbx(self: *CPU) u32 {
+        const base_addr = self.fetchWord();
+        const addr = base_addr + self.x;
+        const m = self.readByte(addr);
+
+        self.lda(m);
+        return if (isPageCrossed(base_addr, addr)) 5 else 4;
+    }
+
+    // Absolute,Y
+    fn ldaAby(self: *CPU) u32 {
+        const base_addr = self.fetchWord();
+        const addr = base_addr + self.y;
+        const m = self.readByte(addr);
+
+        self.lda(m);
+        return if (isPageCrossed(base_addr, addr)) 5 else 4;
+    }
+
+    // (Indirect,X)
+    fn ldaIdx(self: *CPU) u32 {
+        const base_zpg_addr = self.fetchByte();
+        const zpg_addr = base_zpg_addr +% self.x;
+        const addr = self.readWord(zpg_addr);
+        const m = self.readByte(addr);
+
+        self.lda(m);
+        return 6;
+    }
+
+    // (Indirect),Y
+    fn ldaIdy(self: *CPU) u32 {
+        const zpg_addr = self.fetchByte();
+        const base_addr = self.readWord(zpg_addr);
+        const addr = base_addr + self.y;
+        const m = self.readByte(addr);
+
+        self.lda(m);
+        return if (isPageCrossed(base_addr, addr)) 6 else 5;
     }
 
     // ---------------------------- HELPER FUNCTIONS ----------------------------
@@ -156,5 +268,9 @@ pub const CPU = struct {
 
     fn isBitSet(byte: u8, bit: u3) bool {
         return (byte & (@as(u8, 1) << bit)) != 0;
+    }
+
+    fn isPageCrossed(base_addr: u16, eff_addr: u16) bool {
+        return (base_addr & 0xFF00) != (eff_addr & 0xFF00);
     }
 };
