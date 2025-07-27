@@ -25,11 +25,12 @@ pub const CPU = struct {
     //                                  CONSTANTS                                
     // --------------------------------------------------------------------------
 
-    pub const RESET_VECTOR: u16 = 0xFFFC;   // Load PC from reset vector
-    pub const RESET_SP:     u8  = 0xFD;     // Starts at 0, then gets decremented 3 times
-    pub const RESET_REG:    u8  = 0x00;     // Zero all registers
-    pub const RESET_STATUS: u8  = 0b100100; // Set I,U
-    pub const RESET_CYCLES: u32 = 7;        // Reset sequence takes 7 cycles
+    pub const RESET_VECTOR: u16   = 0xFFFC;     // Load PC from reset vector
+    pub const RESET_SP:     u8    = 0xFD;       // Starts at 0, then gets decremented 3 times
+    pub const RESET_REG:    u8    = 0x00;       // Zero all registers
+    pub const RESET_STATUS: u8    = 0b100100;   // Set I,U
+    pub const RESET_CYCLES: u32   = 7;          // Reset sequence takes 7 cycles
+    pub const TABLE_SIZE:   usize = 256;        // Instruction table size (16x16)
 
     pub const Flag = enum(u8) {
         C = 1 << 0, // Carry flag
@@ -48,6 +49,35 @@ pub const CPU = struct {
         LDA_ABY = 0xB9, LDA_IDX = 0xA1, LDA_IDY = 0xB1,
     };
 
+    pub const AddressingMode = enum {
+        IMP,    // Implied
+        IMM,    // Immediate
+        ZPG,    // Zero Page
+        ZPX,    // Zero Page,X
+        ZPY,    // Zero Page,Y
+        REL,    // Relative
+        ABS,    // Absolute
+        ABX,    // Absolute,X
+        ABY,    // Absolute,Y
+        IND,    // Indirect
+        IDX,    // (Indirect,X)
+        IDY,    // (Indirect),Y
+    };
+
+    pub const AddressResult = struct {
+        addr: u16,                  // Address fetched
+        pageCrossed: bool = false,  // Whether a page (0-255) was crossed
+    };
+
+    pub const InstructionHandler = *const fn (*CPU, AddressingMode) u1;
+
+    pub const Instruction = struct {
+        name: []const u8,               // Pneumonic (TODO: use for disassembly)
+        mode: AddressingMode,           // Addressing mode used
+        execute: InstructionHandler,    // Function pointer to implementation
+        cycles: u32,                    // Number of clock cycles required
+    };
+
     // --------------------------------------------------------------------------
     //                                   FIELDS                                  
     // --------------------------------------------------------------------------
@@ -60,6 +90,10 @@ pub const CPU = struct {
     status: u8,         // Processor status flags
     memory: *Memory,    // RAM (only device connected to bus)
     cycles: u32,        // Cycles remaining for current instruction
+    
+    // 16x16 instruction table. Bottom nibble is the column, top nibble is the
+    // row, so that instruction opcodes can be used to index the table.
+    instruction_table: [TABLE_SIZE]Instruction,
 
     // --------------------------------------------------------------------------
     //                                CORE METHODS                               
@@ -69,6 +103,7 @@ pub const CPU = struct {
         var cpu: CPU = undefined;
 
         cpu.memory = memory;
+        cpu.buildInstructionTable();
         cpu.reset();
 
         return cpu;
@@ -90,7 +125,7 @@ pub const CPU = struct {
             const maybe_opcode = decodeOpcode(fetched);
 
             if (maybe_opcode) |opcode| {
-                const cycles_required = self.execute(opcode);
+                const cycles_required = self.executeInstruction(opcode);
                 self.cycles = cycles_required;
             } else {
                 std.debug.print("Unknown opcode: '0x{X:0>2}'\n", .{fetched});
@@ -152,22 +187,113 @@ pub const CPU = struct {
         else self.status &= ~(@intFromEnum(flag));
     }
 
-    pub fn execute(self: *CPU, opcode: Opcode) u32 {
-        return switch (opcode) {
-            .LDA_IMM => self.ldaImm(),
-            .LDA_ZPG => self.ldaZpg(),
-            .LDA_ZPX => self.ldaZpx(),
-            .LDA_ABS => self.ldaAbs(),
-            .LDA_ABX => self.ldaAbx(),
-            .LDA_ABY => self.ldaAby(),
-            .LDA_IDX => self.ldaIdx(),
-            .LDA_IDY => self.ldaIdy(),
+    pub fn resolveAddress(self: *CPU, mode: AddressingMode) AddressResult {
+        return switch (mode) {
+            .IMP => undefined,
+            .IMM => {
+                const addr = self.pc;
+                self.pc += 1;
+                return .{ .addr = addr };
+            },
+            .ZPG => {
+                const addr = self.fetchByte();
+                return .{ .addr = addr };
+            },
+            .ZPX => {
+                const base_addr = self.fetchByte();
+                const addr = base_addr +% self.x;
+                return .{ .addr = addr };
+            },
+            .ZPY => {
+                const base_addr = self.fetchByte();
+                const addr = base_addr +% self.y;
+                return .{ .addr = addr };
+            },
+            .REL => undefined,
+            .ABS => {
+                const addr = self.fetchWord();
+                return .{ .addr = addr };
+            },
+            .ABX => {
+                const base_addr = self.fetchWord();
+                const addr = base_addr + self.x;
+                return .{
+                    .addr = addr,
+                    .pageCrossed = isPageCrossed(base_addr, addr)
+                };
+            },
+            .ABY => {
+                const base_addr = self.fetchWord();
+                const addr = base_addr + self.y;
+                return .{
+                    .addr = addr,
+                    .pageCrossed = isPageCrossed(base_addr, addr),
+                };
+            },
+            .IND => undefined,
+            .IDX => {
+                const base_zpg_addr = self.fetchByte();
+                const zpg_addr = base_zpg_addr +% self.x;
+                const addr = self.readWord(zpg_addr);
+                return .{ .addr = addr };
+            },
+            .IDY => {
+                const zpg_addr = self.fetchByte();
+                const base_addr = self.readWord(zpg_addr);
+                const addr = base_addr + self.y;
+                return .{
+                    .addr = addr,
+                    .pageCrossed = isPageCrossed(base_addr, addr),
+                };
+            }
         };
+    }
+
+    pub fn executeInstruction(self: *CPU, opcode: Opcode) u32 {
+        const instruction = self.instruction_table[@intFromEnum(opcode)];
+        const extra_cycle = instruction.execute(self, instruction.mode);
+
+        return instruction.cycles + extra_cycle;
     }
 
     // --------------------------------------------------------------------------
     //                                INSTRUCTIONS                               
     // --------------------------------------------------------------------------
+
+    fn addInstruction(
+        self: *CPU,
+        opcode: Opcode,
+        name: []const u8,
+        mode: AddressingMode,
+        execute: InstructionHandler,
+        cycles: u32
+    ) void {
+        self.instruction_table[@intFromEnum(opcode)] = Instruction {
+            .name = name,
+            .mode = mode,
+            .execute = execute,
+            .cycles = cycles,
+        };
+    }
+
+    fn buildInstructionTable(self: *CPU) void {
+        // Initialize all instructions to default value
+        self.instruction_table = [_]Instruction{ .{
+            .name = "???",
+            .mode = .IMM,
+            .execute = &unknownInstruction,
+            .cycles = 0,
+        } } ** TABLE_SIZE;
+
+        self.addInstruction(.LDA_IMM, "LDA", .IMM, &executeLDA, 2);
+        self.addInstruction(.LDA_ZPG, "LDA", .ZPG, &executeLDA, 3);
+        self.addInstruction(.LDA_ZPX, "LDA", .ZPX, &executeLDA, 4);
+        self.addInstruction(.LDA_ABS, "LDA", .ABS, &executeLDA, 4);
+        self.addInstruction(.LDA_ABX, "LDA", .ABX, &executeLDA, 4);
+        self.addInstruction(.LDA_ABY, "LDA", .ABY, &executeLDA, 4);
+        self.addInstruction(.LDA_IDX, "LDA", .IDX, &executeLDA, 6);
+        self.addInstruction(.LDA_IDY, "LDA", .IDY, &executeLDA, 5);
+    }
 
     // Reference: http://www.6502.org/users/obelisk/6502/reference.html
 
@@ -175,88 +301,22 @@ pub const CPU = struct {
     // Function:    A = M
     // Flags:       Z,N
 
-    fn lda(self: *CPU, m: u8) void {
-        self.a = m;
-        self.setFlag(.Z, m == 0x00);
-        self.setFlag(.N, isBitSet(m, 7));
+    fn executeLDA(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+
+        self.a = value;
+        self.setFlag(.Z, value == 0x00);
+        self.setFlag(.N, isBitSet(value, 7));
+
+        return @intFromBool(addr_res.pageCrossed);
     }
 
-    // Immediate
-    fn ldaImm(self: *CPU) u32 {
-        const m = self.fetchByte();
+    // ------------------------ ??? - Unknown instruction -----------------------
 
-        self.lda(m);
-        return 2;
-    }
-
-    // Zero page
-    fn ldaZpg(self: *CPU) u32 {
-        const addr = self.fetchByte();
-        const m = self.readByte(addr);
-
-        self.lda(m);
-        return 3; 
-    }
-
-    // Zero page,X
-    fn ldaZpx(self: *CPU) u32 {
-        const base_addr = self.fetchByte();
-        const addr = base_addr +% self.x;
-        const m = self.readByte(addr);
-
-        self.lda(m);
-        return 4;
-    }
-
-    // Absolute
-    fn ldaAbs(self: *CPU) u32 {
-        const addr = self.fetchWord();
-        const m = self.readByte(addr);
-
-        self.lda(m);
-        return 4;
-    }
-
-    // Absolute,X
-    fn ldaAbx(self: *CPU) u32 {
-        const base_addr = self.fetchWord();
-        const addr = base_addr + self.x;
-        const m = self.readByte(addr);
-
-        self.lda(m);
-        return if (isPageCrossed(base_addr, addr)) 5 else 4;
-    }
-
-    // Absolute,Y
-    fn ldaAby(self: *CPU) u32 {
-        const base_addr = self.fetchWord();
-        const addr = base_addr + self.y;
-        const m = self.readByte(addr);
-
-        self.lda(m);
-        return if (isPageCrossed(base_addr, addr)) 5 else 4;
-    }
-
-    // (Indirect,X)
-    fn ldaIdx(self: *CPU) u32 {
-        const base_zpg_addr = self.fetchByte();
-        const zpg_addr = base_zpg_addr +% self.x;
-        const addr = self.readWord(zpg_addr);
-        const m = self.readByte(addr);
-
-        self.lda(m);
-        return 6;
-    }
-
-    // (Indirect),Y
-    fn ldaIdy(self: *CPU) u32 {
-        const zpg_addr = self.fetchByte();
-        const base_addr = self.readWord(zpg_addr);
-        const addr = base_addr + self.y;
-        const m = self.readByte(addr);
-
-        self.lda(m);
-        return if (isPageCrossed(base_addr, addr)) 6 else 5;
+    fn unknownInstruction(_: *CPU, _:AddressingMode) u1 {
+        std.debug.print("Unknown instruction\n", .{});
+        return 0;
     }
 
     // --------------------------------------------------------------------------

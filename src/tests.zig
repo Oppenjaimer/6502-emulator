@@ -20,7 +20,7 @@ fn initCPU(memory: *Memory) CPU {
     var cpu = CPU.init(memory);
 
     // Execute startup
-    cpu.run(7);
+    cpu.run(CPU.RESET_CYCLES);
 
     return cpu;
 }
