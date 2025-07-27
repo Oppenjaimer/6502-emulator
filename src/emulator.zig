@@ -259,7 +259,9 @@ pub const CPU = struct {
         return if (isPageCrossed(base_addr, addr)) 6 else 5;
     }
 
-    // ---------------------------- HELPER FUNCTIONS ----------------------------
+    // --------------------------------------------------------------------------
+    //                              HELPER FUNCTIONS                             
+    // --------------------------------------------------------------------------
 
     fn decodeOpcode(byte: u8) ?Opcode {
         return std.meta.intToEnum(Opcode, byte) catch null;
