@@ -139,7 +139,6 @@ pub const CPU = struct {
     pub fn fetchWord(self: *CPU) u16 {
         const low:  u16 = self.fetchByte();
         const high: u16 = self.fetchByte();
-        self.pc += 2;
 
         return (high << 8) | low;
     }
