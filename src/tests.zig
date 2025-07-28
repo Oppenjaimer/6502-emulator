@@ -353,3 +353,47 @@ test "LDX ABY" {
 
     try testLoadRegisterABY(&cpu, .LDX_ABY, &cpu.x);
 }
+
+// -------------------------- LDY - Load Y register -------------------------
+
+test "LDY Flags" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+    
+    try testLoadRegisterFlags(&cpu, .LDY_IMM);
+}
+
+test "LDY IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterIMM(&cpu, .LDY_IMM, &cpu.y);
+}
+
+test "LDY ZPG" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterZPG(&cpu, .LDY_ZPG, &cpu.y);
+}
+
+test "LDY ZPX" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterZPX(&cpu, .LDY_ZPX, &cpu.y);
+}
+
+test "LDY ABS" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterABS(&cpu, .LDY_ABS, &cpu.y);
+}
+
+test "LDY ABX" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterABX(&cpu, .LDY_ABX, &cpu.y);
+}
