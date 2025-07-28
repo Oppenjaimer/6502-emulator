@@ -6,12 +6,20 @@ const CPU = emulator.CPU;
 const Memory = emulator.Memory;
 const Opcode = CPU.Opcode;
 
+const START_ADDR: u16 = 0x3000;
+const START_HIGH: u8 = START_ADDR >> 8;
+const START_LOW:  u8 = START_ADDR & 0xFF;
+
+// --------------------------------------------------------------------------
+//                              HELPER FUNCTIONS                             
+// --------------------------------------------------------------------------
+
 fn initMemory() Memory {
     var mem = Memory.init();
 
     // Set starting location
-    mem.write(CPU.RESET_VECTOR + 0, 0x00);
-    mem.write(CPU.RESET_VECTOR + 1, 0x30);
+    mem.write(CPU.RESET_VECTOR + 0, START_LOW);
+    mem.write(CPU.RESET_VECTOR + 1, START_HIGH);
 
     return mem;
 }
@@ -25,11 +33,184 @@ fn initCPU(memory: *Memory) CPU {
     return cpu;
 }
 
+fn getInstructionCycles(cpu: *CPU, opcode: Opcode) u32 {
+    return cpu.instruction_table[@intFromEnum(opcode)].cycles;
+}
+
+fn testLoadRegisterFlags(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x80);
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0x00);
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), true);
+    try testing.expectEqual(cpu.getFlag(.N), false);
+}
+
+fn testLoadRegisterIMM(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x11);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testLoadRegisterZPG(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x32);
+    cpu.writeByte(0x0032, 0x33);
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x33);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testLoadRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x44);
+    cpu.writeByte(0x0045, 0x55);
+    cpu.x = 0x01; // No wrap around
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x55);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0xFF);
+    cpu.writeByte(0x0001, 0x60);
+    cpu.x = 0x02; // Address wraps around
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x60);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testLoadRegisterABS(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    cpu.writeByte(0x1234, 0x67);
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x67);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testLoadRegisterABX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x5678);
+    cpu.writeByte(0x5679, 0x72);
+    cpu.x = 0x01; // No page crossed
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x72);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 3, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 4, 0x6789);
+    cpu.writeByte(0x3005, 0x67);
+    cpu.writeByte(0x6800, 0x79);
+    cpu.x = 0x77; // Page crossed
+    cpu.run(cycles + 1);
+
+    try testing.expectEqual(register.*, 0x79);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testLoadRegisterABY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x5678);
+    cpu.writeByte(0x5679, 0x72);
+    cpu.y = 0x01; // No page crossed
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x72);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 3, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 4, 0x89);
+    cpu.writeByte(0x3005, 0x67);
+    cpu.writeByte(0x6800, 0x79);
+    cpu.y = 0x77; // Page crossed
+    cpu.run(cycles + 1);
+
+    try testing.expectEqual(register.*, 0x79);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testLoadRegisterIDX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x84);
+    cpu.writeWord(0x0085, 0x9190);
+    cpu.writeByte(0x9190, 0x95);
+    cpu.x = 0x01; // No wrap around
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x95);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0x85);
+    cpu.writeWord(0x0000, 0x9291);
+    cpu.writeByte(0x9291, 0x99);
+    cpu.x = 0x7B; // Address wraps around
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x99);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testLoadRegisterIDY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x84);
+    cpu.writeWord(0x0084, 0x9190);
+    cpu.writeByte(0x9191, 0xA1);
+    cpu.y = 0x01; // No page crossed
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0xA1);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0x85);
+    cpu.writeWord(0x0085, 0x9291);
+    cpu.writeByte(0x9300, 0xA5);
+    cpu.y = 0x6F; // Page crossed
+    cpu.run(cycles + 1);
+
+    try testing.expectEqual(register.*, 0xA5);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
 // --------------------------------------------------------------------------
 //                               CPU CORE TESTS                              
 // --------------------------------------------------------------------------
 
-test "CPU cycles" {
+test "CPU Cycles" {
     var mem = Memory.init();
     var cpu = CPU.init(&mem);
 
@@ -44,202 +225,65 @@ test "CPU cycles" {
 
 // ------------------------- LDA - Load accumulator -------------------------
 
-test "LDA flags" {
+test "LDA Flags" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
-
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_IMM));
-    mem.write(0x3001, 0x80);
-
-    cpu.run(2);
-
-    try testing.expectEqual(cpu.getFlag(.Z), false);
-    try testing.expectEqual(cpu.getFlag(.N), true);
-
-    mem.write(0x3002, @intFromEnum(Opcode.LDA_IMM));
-    mem.write(0x3003, 0x00);
-
-    cpu.run(2);
-
-    try testing.expectEqual(cpu.getFlag(.Z), true);
-    try testing.expectEqual(cpu.getFlag(.N), false);
+    
+    try testLoadRegisterFlags(&cpu, .LDA_IMM);
 }
 
-test "LDA Immediate" {
+test "LDA IMM" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
 
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_IMM));
-    mem.write(0x3001, 0x27);
-
-    cpu.run(2);
-
-    try testing.expectEqual(cpu.a, 0x27);
-    try testing.expectEqual(cpu.cycles, 0);
+    try testLoadRegisterIMM(&cpu, .LDA_IMM, &cpu.a);
 }
 
-test "LDA Zero page" {
+test "LDA ZPG" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
 
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_ZPG));
-    mem.write(0x3001, 0x32);
-    mem.write(0x0032, 0x33);
-
-    cpu.run(3);
-
-    try testing.expectEqual(cpu.a, 0x33);
-    try testing.expectEqual(cpu.cycles, 0);
+    try testLoadRegisterZPG(&cpu, .LDA_ZPG, &cpu.a);
 }
 
-test "LDA Zero page,X" {
+test "LDA ZPX" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
 
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_ZPX));
-    mem.write(0x3001, 0x44);
-    mem.write(0x0045, 0x55);
-
-    cpu.x = 0x01; // No wrap around
-    cpu.run(4);
-
-    try testing.expectEqual(cpu.a, 0x55);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    mem.write(0x3002, @intFromEnum(Opcode.LDA_ZPX));
-    mem.write(0x3003, 0xFF);
-    mem.write(0x0001, 0x60);
-
-    cpu.x = 0x02; // Address wraps around
-    cpu.run(4);
-
-    try testing.expectEqual(cpu.a, 0x60);
-    try testing.expectEqual(cpu.cycles, 0);
+    try testLoadRegisterZPX(&cpu, .LDA_ZPX, &cpu.a);
 }
 
-test "LDA Absolute" {
+test "LDA ABS" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
 
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_ABS));
-    mem.write(0x3001, 0x34);
-    mem.write(0x3002, 0x12);
-    mem.write(0x1234, 0x67);
-
-    cpu.run(4);
-
-    try testing.expectEqual(cpu.a, 0x67);
-    try testing.expectEqual(cpu.cycles, 0);
+    try testLoadRegisterABS(&cpu, .LDA_ABS, &cpu.a);
 }
 
-test "LDA Absolute,X" {
+test "LDA ABX" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
 
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_ABX));
-    mem.write(0x3001, 0x78);
-    mem.write(0x3002, 0x56);
-    mem.write(0x5679, 0x72);
-
-    cpu.x = 0x01; // No page crossed
-    cpu.run(4);
-
-    try testing.expectEqual(cpu.a, 0x72);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    mem.write(0x3003, @intFromEnum(Opcode.LDA_ABX));
-    mem.write(0x3004, 0x89);
-    mem.write(0x3005, 0x67);
-    mem.write(0x6800, 0x79);
-
-    cpu.x = 0x77; // Page crossed
-    cpu.run(5);
-
-    try testing.expectEqual(cpu.a, 0x79);
-    try testing.expectEqual(cpu.cycles, 0);
+    try testLoadRegisterABX(&cpu, .LDA_ABX, &cpu.a);
 }
 
-test "LDA Absolute,Y" {
+test "LDA ABY" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
 
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_ABY));
-    mem.write(0x3001, 0x78);
-    mem.write(0x3002, 0x56);
-    mem.write(0x5679, 0x72);
-
-    cpu.y = 0x01; // No page crossed
-    cpu.run(4);
-
-    try testing.expectEqual(cpu.a, 0x72);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    mem.write(0x3003, @intFromEnum(Opcode.LDA_ABY));
-    mem.write(0x3004, 0x89);
-    mem.write(0x3005, 0x67);
-    mem.write(0x6800, 0x79);
-
-    cpu.y = 0x77; // Page crossed
-    cpu.run(5);
-
-    try testing.expectEqual(cpu.a, 0x79);
-    try testing.expectEqual(cpu.cycles, 0);
+    try testLoadRegisterABY(&cpu, .LDA_ABY, &cpu.a);
 }
 
-test "LDA (Indirect,X)" {
+test "LDA IDX" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
 
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_IDX));
-    mem.write(0x3001, 0x84);
-    mem.write(0x0085, 0x90);
-    mem.write(0x0086, 0x91);
-    mem.write(0x9190, 0x95);
-
-    cpu.x = 0x01; // No wrap around
-    cpu.run(6);
-
-    try testing.expectEqual(cpu.a, 0x95);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    mem.write(0x3002, @intFromEnum(Opcode.LDA_IDX));
-    mem.write(0x3003, 0x85);
-    mem.write(0x0000, 0x91);
-    mem.write(0x0001, 0x92);
-    mem.write(0x9291, 0x99);
-
-    cpu.x = 0x7B; // Address wraps around
-    cpu.run(6);
-
-    try testing.expectEqual(cpu.a, 0x99);
-    try testing.expectEqual(cpu.cycles, 0);
+    try testLoadRegisterIDX(&cpu, .LDA_IDX, &cpu.a);
 }
 
-test "LDA (Indirect),Y" {
+test "LDA IDY" {
     var mem = initMemory();
     var cpu = initCPU(&mem);
 
-    mem.write(0x3000, @intFromEnum(Opcode.LDA_IDY));
-    mem.write(0x3001, 0x84);
-    mem.write(0x0084, 0x90);
-    mem.write(0x0085, 0x91);
-    mem.write(0x9191, 0xA1);
-
-    cpu.y = 0x01; // No page crossed
-    cpu.run(5);
-
-    try testing.expectEqual(cpu.a, 0xA1);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    mem.write(0x3002, @intFromEnum(Opcode.LDA_IDY));
-    mem.write(0x3003, 0x85);
-    mem.write(0x0085, 0x91);
-    mem.write(0x0086, 0x92);
-    mem.write(0x9300, 0xA5);
-
-    cpu.y = 0x6F; // Page crossed
-    cpu.run(6);
-
-    try testing.expectEqual(cpu.a, 0xA5);
-    try testing.expectEqual(cpu.cycles, 0);
+    try testLoadRegisterIDY(&cpu, .LDA_IDY, &cpu.a);
 }
