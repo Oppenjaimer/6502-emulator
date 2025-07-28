@@ -47,6 +47,9 @@ pub const CPU = struct {
         // LDA - Load accumulator
         LDA_IMM = 0xA9, LDA_ZPG = 0xA5, LDA_ZPX = 0xB5, LDA_ABS = 0xAD, LDA_ABX = 0xBD,
         LDA_ABY = 0xB9, LDA_IDX = 0xA1, LDA_IDY = 0xB1,
+
+        // LDX - Load X register
+        LDX_IMM = 0xA2, LDX_ZPG = 0xA6, LDX_ZPY = 0xB6, LDX_ABS = 0xAE, LDX_ABY = 0xBE,
     };
 
     pub const AddressingMode = enum {
@@ -293,6 +296,12 @@ pub const CPU = struct {
         self.addInstruction(.LDA_ABY, "LDA", .ABY, &executeLDA, 4);
         self.addInstruction(.LDA_IDX, "LDA", .IDX, &executeLDA, 6);
         self.addInstruction(.LDA_IDY, "LDA", .IDY, &executeLDA, 5);
+
+        self.addInstruction(.LDX_IMM, "LDX", .IMM, &executeLDX, 2);
+        self.addInstruction(.LDX_ZPG, "LDX", .ZPG, &executeLDX, 3);
+        self.addInstruction(.LDX_ZPY, "LDX", .ZPY, &executeLDX, 4);
+        self.addInstruction(.LDX_ABS, "LDX", .ABS, &executeLDX, 4);
+        self.addInstruction(.LDX_ABY, "LDX", .ABY, &executeLDX, 4);
     }
 
     // Reference: http://www.6502.org/users/obelisk/6502/reference.html
@@ -309,6 +318,21 @@ pub const CPU = struct {
         self.setFlag(.Z, value == 0x00);
         self.setFlag(.N, isBitSet(value, 7));
 
+        return @intFromBool(addr_res.pageCrossed);
+    }
+
+    // -------------------------- LDX - Load X register -------------------------
+    // Function:    X = M
+    // Flags:       Z,N
+
+    fn executeLDX(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+
+        self.x = value;
+        self.setFlag(.Z, value == 0x00);
+        self.setFlag(.N, isBitSet(value, 7));
+        
         return @intFromBool(addr_res.pageCrossed);
     }
 

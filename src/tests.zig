@@ -100,6 +100,28 @@ fn testLoadRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     try testing.expectEqual(cpu.cycles, 0);
 }
 
+fn testLoadRegisterZPY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x44);
+    cpu.writeByte(0x0045, 0x55);
+    cpu.y = 0x01; // No wrap around
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x55);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0xFF);
+    cpu.writeByte(0x0001, 0x60);
+    cpu.y = 0x02; // Address wraps around
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x60);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
 fn testLoadRegisterABS(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     const cycles = getInstructionCycles(cpu, opcode);
 
@@ -286,4 +308,48 @@ test "LDA IDY" {
     var cpu = initCPU(&mem);
 
     try testLoadRegisterIDY(&cpu, .LDA_IDY, &cpu.a);
+}
+
+// -------------------------- LDX - Load X register -------------------------
+
+test "LDX Flags" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+    
+    try testLoadRegisterFlags(&cpu, .LDX_IMM);
+}
+
+test "LDX IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterIMM(&cpu, .LDX_IMM, &cpu.x);
+}
+
+test "LDX ZPG" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterZPG(&cpu, .LDX_ZPG, &cpu.x);
+}
+
+test "LDX ZPY" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterZPY(&cpu, .LDX_ZPY, &cpu.x);
+}
+
+test "LDX ABS" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterABS(&cpu, .LDX_ABS, &cpu.x);
+}
+
+test "LDX ABY" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testLoadRegisterABY(&cpu, .LDX_ABY, &cpu.x);
 }
