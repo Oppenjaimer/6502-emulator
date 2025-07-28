@@ -160,8 +160,8 @@ pub const CPU = struct {
     }
 
     pub fn writeWord(self: *CPU, addr: u16, value: u16) void {
-        self.writeByte(addr + 0, value & 0x00FF);
-        self.writeByte(addr + 1, value >> 8);
+        self.writeByte(addr + 0, @intCast(value & 0xFF));
+        self.writeByte(addr + 1, @intCast(value >> 8));
     }
 
     pub fn fetchByte(self: *CPU) u8 {
