@@ -14,6 +14,8 @@ const START_LOW:  u8 = START_ADDR & 0xFF;
 //                              HELPER FUNCTIONS                             
 // --------------------------------------------------------------------------
 
+// ----------------------------- Initialization -----------------------------
+
 fn initMemory() Memory {
     var mem = Memory.init();
 
@@ -33,9 +35,13 @@ fn initCPU(memory: *Memory) CPU {
     return cpu;
 }
 
+// ------------------------------ Miscellaneous -----------------------------
+
 fn getInstructionCycles(cpu: *CPU, opcode: Opcode) u32 {
     return cpu.instruction_table[@intFromEnum(opcode)].cycles;
 }
+
+// ------------------------------ Load register -----------------------------
 
 fn testLoadRegisterFlags(cpu: *CPU, opcode: Opcode) !void {
     const cycles = getInstructionCycles(cpu, opcode);
@@ -228,6 +234,140 @@ fn testLoadRegisterIDY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     try testing.expectEqual(cpu.cycles, 0);
 }
 
+// ----------------------------- Store register -----------------------------
+
+fn testStoreRegisterZPG(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x32);
+    register.* = 0xAB;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x0032), 0xAB);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testStoreRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x44);
+    cpu.x = 0x01; // No wrap around
+    register.* = 0x55;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x0045), 0x55);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0xFF);
+    cpu.x = 0x02; // Address wraps around
+    register.* = 0x60;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x0001), 0x60);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testStoreRegisterZPY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x44);
+    cpu.y = 0x01; // No wrap around
+    register.* = 0x55;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x0045), 0x55);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0xFF);
+    cpu.y = 0x02; // Address wraps around
+    register.* = 0x60;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x0001), 0x60);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testStoreRegisterABS(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    register.* = 0x67;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x1234), 0x67);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testStoreRegisterABX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x5678);
+    cpu.x = 0x01;
+    register.* = 0x72;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x5679), 0x72);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testStoreRegisterABY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x5678);
+    cpu.y = 0x01;
+    register.* = 0x72;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x5679), 0x72);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testStoreRegisterIDX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x84);
+    cpu.writeWord(0x0085, 0x9190);
+    cpu.x = 0x01; // No wrap around
+    register.* = 0x95;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x9190), 0x95);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0x85);
+    cpu.writeWord(0x0000, 0x9291);
+    cpu.x = 0x7B; // Address wraps around
+    register.* = 0x99;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x9291), 0x99);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testStoreRegisterIDY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x84);
+    cpu.writeWord(0x0084, 0x9190);
+    cpu.y = 0x01; // No page crossed
+    register.* = 0xA1;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(0x9191), 0xA1);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
 // --------------------------------------------------------------------------
 //                               CPU CORE TESTS                              
 // --------------------------------------------------------------------------
@@ -396,4 +536,101 @@ test "LDY ABX" {
     var cpu = initCPU(&mem);
 
     try testLoadRegisterABX(&cpu, .LDY_ABX, &cpu.y);
+}
+
+// ------------------------- STA - Store accumulator ------------------------
+
+test "STA ZPG" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterZPG(&cpu, .STA_ZPG, &cpu.a);
+}
+
+test "STA ZPX" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterZPX(&cpu, .STA_ZPX, &cpu.a);
+}
+
+test "STA ABS" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterABS(&cpu, .STA_ABS, &cpu.a);
+}
+
+test "STA ABX" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterABX(&cpu, .STA_ABX, &cpu.a);
+}
+
+test "STA ABY" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterABY(&cpu, .STA_ABY, &cpu.a);
+}
+
+test "STA IDX" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterIDX(&cpu, .STA_IDX, &cpu.a);
+}
+
+test "STA IDY" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterIDY(&cpu, .STA_IDY, &cpu.a);
+}
+
+// ------------------------- STX - Store X register -------------------------
+
+test "STX ZPG" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterZPG(&cpu, .STX_ZPG, &cpu.x);
+}
+
+test "STX ZPY" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterZPY(&cpu, .STX_ZPY, &cpu.x);
+}
+
+test "STX ABS" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterABS(&cpu, .STX_ABS, &cpu.x);
+}
+
+// ------------------------- STY - Store Y register -------------------------
+
+test "STY ZPG" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterZPG(&cpu, .STY_ZPG, &cpu.y);
+}
+
+test "STY ZPX" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterZPX(&cpu, .STY_ZPX, &cpu.y);
+}
+
+test "STY ABS" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStoreRegisterABS(&cpu, .STY_ABS, &cpu.y);
 }

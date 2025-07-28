@@ -53,6 +53,16 @@ pub const CPU = struct {
 
         // LDY - Load Y register
         LDY_IMM = 0xA0, LDY_ZPG = 0xA4, LDY_ZPX = 0xB4, LDY_ABS = 0xAC, LDY_ABX = 0xBC,
+
+        // STA - Store accumulator
+        STA_ZPG = 0x85, STA_ZPX = 0x95, STA_ABS = 0x8D, STA_ABX = 0x9D, STA_ABY = 0x99,
+        STA_IDX = 0x81, STA_IDY = 0x91,
+
+        // STX - Store X register
+        STX_ZPG = 0x86, STX_ZPY = 0x96, STX_ABS = 0x8E,
+
+        // STY - Store Y register
+        STY_ZPG = 0x84, STY_ZPX = 0x94, STY_ABS = 0x8C,
     };
 
     pub const AddressingMode = enum {
@@ -311,6 +321,22 @@ pub const CPU = struct {
         self.addInstruction(.LDY_ZPX, "LDY", .ZPX, &executeLDY, 4);
         self.addInstruction(.LDY_ABS, "LDY", .ABS, &executeLDY, 4);
         self.addInstruction(.LDY_ABX, "LDY", .ABX, &executeLDY, 4);
+
+        self.addInstruction(.STA_ZPG, "STA", .ZPG, &executeSTA, 3);
+        self.addInstruction(.STA_ZPX, "STA", .ZPX, &executeSTA, 4);
+        self.addInstruction(.STA_ABS, "STA", .ABS, &executeSTA, 4);
+        self.addInstruction(.STA_ABX, "STA", .ABX, &executeSTA, 5);
+        self.addInstruction(.STA_ABY, "STA", .ABY, &executeSTA, 5);
+        self.addInstruction(.STA_IDX, "STA", .IDX, &executeSTA, 6);
+        self.addInstruction(.STA_IDY, "STA", .IDY, &executeSTA, 6);
+
+        self.addInstruction(.STX_ZPG, "STX", .ZPG, &executeSTX, 3);
+        self.addInstruction(.STX_ZPY, "STX", .ZPY, &executeSTX, 4);
+        self.addInstruction(.STX_ABS, "STX", .ABS, &executeSTX, 4);
+
+        self.addInstruction(.STY_ZPG, "STY", .ZPG, &executeSTY, 3);
+        self.addInstruction(.STY_ZPX, "STY", .ZPX, &executeSTY, 4);
+        self.addInstruction(.STY_ABS, "STY", .ABS, &executeSTY, 4);
     }
 
     // Reference: http://www.6502.org/users/obelisk/6502/reference.html
@@ -358,6 +384,42 @@ pub const CPU = struct {
         self.setFlag(.N, isBitSet(value, 7));
         
         return @intFromBool(addr_res.pageCrossed);
+    }
+
+    // ------------------------- STA - Store accumulator ------------------------
+    // Function:    M = A
+    // Flags:       none
+
+    fn executeSTA(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+
+        self.writeByte(addr_res.addr, self.a);
+
+        return 0; // No extra cycles
+    }
+
+    // ------------------------- STX - Store X register -------------------------
+    // Function:    M = X
+    // Flags:       none
+
+    fn executeSTX(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+
+        self.writeByte(addr_res.addr, self.x);
+
+        return 0; // No extra cycles
+    }
+
+    // ------------------------- STY - Store Y register -------------------------
+    // Function:    M = Y
+    // Flags:       none
+
+    fn executeSTY(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+
+        self.writeByte(addr_res.addr, self.y);
+
+        return 0; // No extra cycles
     }
 
     // ------------------------ ??? - Unknown instruction -----------------------
