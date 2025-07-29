@@ -760,3 +760,28 @@ test "TYA IMM" {
 
     try testTransferRegisterIMM(&cpu, .TYA_IMP, &cpu.y, &cpu.a);
 }
+
+// ------------------------- TSX - Transfer SP to X -------------------------
+
+test "TSX Flags" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterFlags(&cpu, .TSX_IMP, &cpu.sp);
+}
+
+test "TSX IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterIMM(&cpu, .TSX_IMP, &cpu.sp, &cpu.x);
+}
+
+// ------------------------- TXS - Transfer X to SP -------------------------
+
+test "TXS IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterIMM(&cpu, .TXS_IMP, &cpu.x, &cpu.sp);
+}

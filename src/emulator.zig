@@ -75,6 +75,12 @@ pub const CPU = struct {
 
         // TYA - Transfer Y to accumulator
         TYA_IMP = 0x98,
+
+        // TSX - Transfer SP to X
+        TSX_IMP = 0xBA,
+
+        // TXS - Transfer X to SP
+        TXS_IMP = 0x9A,
     };
 
     pub const AddressingMode = enum {
@@ -290,6 +296,8 @@ pub const CPU = struct {
     //                                INSTRUCTIONS                               
     // --------------------------------------------------------------------------
 
+    // Reference: http://www.6502.org/users/obelisk/6502/reference.html
+
     fn addInstruction(
         self: *CPU,
         opcode: Opcode,
@@ -353,15 +361,17 @@ pub const CPU = struct {
         self.addInstruction(.STY_ABS, "STY", .ABS, &executeSTY, 4);
 
         self.addInstruction(.TAX_IMP, "TAX", .IMP, &executeTAX, 2);
-        
         self.addInstruction(.TAY_IMP, "TAY", .IMP, &executeTAY, 2);
-
         self.addInstruction(.TXA_IMP, "TXA", .IMP, &executeTXA, 2);
-
         self.addInstruction(.TYA_IMP, "TYA", .IMP, &executeTYA, 2);
+        self.addInstruction(.TSX_IMP, "TSX", .IMP, &executeTSX, 2);
+        self.addInstruction(.TXS_IMP, "TXS", .IMP, &executeTXS, 2);
     }
 
-    // Reference: http://www.6502.org/users/obelisk/6502/reference.html
+    fn setFlagsZN(self: *CPU, value: u8) void {
+        self.setFlag(.Z, value == 0x00);
+        self.setFlag(.N, isBitSet(value, 7));
+    }
 
     // ------------------------- LDA - Load accumulator -------------------------
     // Function:    A = M
@@ -372,8 +382,7 @@ pub const CPU = struct {
         const value = self.readByte(addr_res.addr);
 
         self.a = value;
-        self.setFlag(.Z, value == 0x00);
-        self.setFlag(.N, isBitSet(value, 7));
+        self.setFlagsZN(value);
 
         return @intFromBool(addr_res.pageCrossed);
     }
@@ -387,8 +396,7 @@ pub const CPU = struct {
         const value = self.readByte(addr_res.addr);
 
         self.x = value;
-        self.setFlag(.Z, value == 0x00);
-        self.setFlag(.N, isBitSet(value, 7));
+        self.setFlagsZN(value);
         
         return @intFromBool(addr_res.pageCrossed);
     }
@@ -402,8 +410,7 @@ pub const CPU = struct {
         const value = self.readByte(addr_res.addr);
 
         self.y = value;
-        self.setFlag(.Z, value == 0x00);
-        self.setFlag(.N, isBitSet(value, 7));
+        self.setFlagsZN(value);
         
         return @intFromBool(addr_res.pageCrossed);
     }
@@ -450,8 +457,7 @@ pub const CPU = struct {
 
     fn executeTAX(self: *CPU, _: AddressingMode) u1 {
         self.x = self.a;
-        self.setFlag(.Z, self.x == 0x00);
-        self.setFlag(.N, isBitSet(self.x, 7));
+        self.setFlagsZN(self.x);
 
         return 0; // No extra cycles
     }
@@ -462,8 +468,7 @@ pub const CPU = struct {
 
     fn executeTAY(self: *CPU, _: AddressingMode) u1 {
         self.y = self.a;
-        self.setFlag(.Z, self.y == 0x00);
-        self.setFlag(.N, isBitSet(self.y, 7));
+        self.setFlagsZN(self.y);
 
         return 0; // No extra cycles
     }
@@ -474,8 +479,7 @@ pub const CPU = struct {
 
     fn executeTXA(self: *CPU, _: AddressingMode) u1 {
         self.a = self.x;
-        self.setFlag(.Z, self.a == 0x00);
-        self.setFlag(.N, isBitSet(self.a, 7));
+        self.setFlagsZN(self.a);
 
         return 0; // No extra cycles
     }
@@ -486,8 +490,28 @@ pub const CPU = struct {
 
     fn executeTYA(self: *CPU, _: AddressingMode) u1 {
         self.a = self.y;
-        self.setFlag(.Z, self.a == 0x00);
-        self.setFlag(.N, isBitSet(self.a, 7));
+        self.setFlagsZN(self.a);
+
+        return 0; // No extra cycles
+    }
+
+    // ------------------------- TSX - Transfer SP to X -------------------------
+    // Function:    X = S
+    // Flags:       Z,N
+
+    fn executeTSX(self: *CPU, _: AddressingMode) u1 {
+        self.x = self.sp;
+        self.setFlagsZN(self.x);
+
+        return 0; // No extra cycles
+    }
+
+    // ------------------------- TXS - Transfer X to SP -------------------------
+    // Function:    S = X
+    // Flags:       none
+
+    fn executeTXS(self: *CPU, _: AddressingMode) u1 {
+        self.sp = self.x;
 
         return 0; // No extra cycles
     }
