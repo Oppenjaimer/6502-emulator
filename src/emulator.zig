@@ -63,6 +63,18 @@ pub const CPU = struct {
 
         // STY - Store Y register
         STY_ZPG = 0x84, STY_ZPX = 0x94, STY_ABS = 0x8C,
+
+        // TAX - Transfer accumulator to X
+        TAX_IMP = 0xAA,
+
+        // TAY - Transfer accumulator to Y
+        TAY_IMP = 0xA8,
+
+        // TXA - Transfer X to accumulator
+        TXA_IMP = 0x8A,
+
+        // TYA - Transfer Y to accumulator
+        TYA_IMP = 0x98,
     };
 
     pub const AddressingMode = enum {
@@ -205,7 +217,9 @@ pub const CPU = struct {
 
     pub fn resolveAddress(self: *CPU, mode: AddressingMode) AddressResult {
         return switch (mode) {
-            .IMP => undefined,
+            .IMP => {
+                unreachable; // No address resolution needed in Implied mode
+            },
             .IMM => {
                 const addr = self.pc;
                 self.pc += 1;
@@ -337,6 +351,14 @@ pub const CPU = struct {
         self.addInstruction(.STY_ZPG, "STY", .ZPG, &executeSTY, 3);
         self.addInstruction(.STY_ZPX, "STY", .ZPX, &executeSTY, 4);
         self.addInstruction(.STY_ABS, "STY", .ABS, &executeSTY, 4);
+
+        self.addInstruction(.TAX_IMP, "TAX", .IMP, &executeTAX, 2);
+        
+        self.addInstruction(.TAY_IMP, "TAY", .IMP, &executeTAY, 2);
+
+        self.addInstruction(.TXA_IMP, "TXA", .IMP, &executeTXA, 2);
+
+        self.addInstruction(.TYA_IMP, "TYA", .IMP, &executeTYA, 2);
     }
 
     // Reference: http://www.6502.org/users/obelisk/6502/reference.html
@@ -418,6 +440,54 @@ pub const CPU = struct {
         const addr_res = self.resolveAddress(mode);
 
         self.writeByte(addr_res.addr, self.y);
+
+        return 0; // No extra cycles
+    }
+
+    // --------------------- TAX - Transfer accumulator to X --------------------
+    // Function:    X = A
+    // Flags:       Z,N
+
+    fn executeTAX(self: *CPU, _: AddressingMode) u1 {
+        self.x = self.a;
+        self.setFlag(.Z, self.x == 0x00);
+        self.setFlag(.N, isBitSet(self.x, 7));
+
+        return 0; // No extra cycles
+    }
+
+    // --------------------- TAY - Transfer accumulator to Y --------------------
+    // Function:    Y = A
+    // Flags:       Z,N
+
+    fn executeTAY(self: *CPU, _: AddressingMode) u1 {
+        self.y = self.a;
+        self.setFlag(.Z, self.y == 0x00);
+        self.setFlag(.N, isBitSet(self.y, 7));
+
+        return 0; // No extra cycles
+    }
+
+    // --------------------- TXA - Transfer X to accumulator --------------------
+    // Function:    A = X
+    // Flags:       Z,N
+
+    fn executeTXA(self: *CPU, _: AddressingMode) u1 {
+        self.a = self.x;
+        self.setFlag(.Z, self.a == 0x00);
+        self.setFlag(.N, isBitSet(self.a, 7));
+
+        return 0; // No extra cycles
+    }
+
+    // --------------------- TYA - Transfer Y to accumulator --------------------
+    // Function:    A = Y
+    // Flags:       Z,N
+
+    fn executeTYA(self: *CPU, _: AddressingMode) u1 {
+        self.a = self.y;
+        self.setFlag(.Z, self.a == 0x00);
+        self.setFlag(.N, isBitSet(self.a, 7));
 
         return 0; // No extra cycles
     }

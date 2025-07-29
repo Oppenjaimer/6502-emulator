@@ -48,6 +48,7 @@ fn testLoadRegisterFlags(cpu: *CPU, opcode: Opcode) !void {
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x80);
+
     cpu.run(cycles);
 
     try testing.expectEqual(cpu.getFlag(.Z), false);
@@ -55,6 +56,7 @@ fn testLoadRegisterFlags(cpu: *CPU, opcode: Opcode) !void {
 
     cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 3, 0x00);
+
     cpu.run(cycles);
 
     try testing.expectEqual(cpu.getFlag(.Z), true);
@@ -66,6 +68,7 @@ fn testLoadRegisterIMM(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x11);
+
     cpu.run(cycles);
 
     try testing.expectEqual(register.*, 0x11);
@@ -78,6 +81,7 @@ fn testLoadRegisterZPG(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x32);
     cpu.writeByte(0x0032, 0x33);
+
     cpu.run(cycles);
 
     try testing.expectEqual(register.*, 0x33);
@@ -90,6 +94,7 @@ fn testLoadRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x44);
     cpu.writeByte(0x0045, 0x55);
+
     cpu.x = 0x01; // No wrap around
     cpu.run(cycles);
 
@@ -99,6 +104,7 @@ fn testLoadRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 3, 0xFF);
     cpu.writeByte(0x0001, 0x60);
+
     cpu.x = 0x02; // Address wraps around
     cpu.run(cycles);
 
@@ -112,6 +118,7 @@ fn testLoadRegisterZPY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x44);
     cpu.writeByte(0x0045, 0x55);
+
     cpu.y = 0x01; // No wrap around
     cpu.run(cycles);
 
@@ -121,6 +128,7 @@ fn testLoadRegisterZPY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 3, 0xFF);
     cpu.writeByte(0x0001, 0x60);
+
     cpu.y = 0x02; // Address wraps around
     cpu.run(cycles);
 
@@ -134,6 +142,7 @@ fn testLoadRegisterABS(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeWord(START_ADDR + 1, 0x1234);
     cpu.writeByte(0x1234, 0x67);
+
     cpu.run(cycles);
 
     try testing.expectEqual(register.*, 0x67);
@@ -146,6 +155,7 @@ fn testLoadRegisterABX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeWord(START_ADDR + 1, 0x5678);
     cpu.writeByte(0x5679, 0x72);
+
     cpu.x = 0x01; // No page crossed
     cpu.run(cycles);
 
@@ -156,6 +166,7 @@ fn testLoadRegisterABX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeWord(START_ADDR + 4, 0x6789);
     cpu.writeByte(0x3005, 0x67);
     cpu.writeByte(0x6800, 0x79);
+
     cpu.x = 0x77; // Page crossed
     cpu.run(cycles + 1);
 
@@ -169,6 +180,7 @@ fn testLoadRegisterABY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeWord(START_ADDR + 1, 0x5678);
     cpu.writeByte(0x5679, 0x72);
+
     cpu.y = 0x01; // No page crossed
     cpu.run(cycles);
 
@@ -179,6 +191,7 @@ fn testLoadRegisterABY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 4, 0x89);
     cpu.writeByte(0x3005, 0x67);
     cpu.writeByte(0x6800, 0x79);
+
     cpu.y = 0x77; // Page crossed
     cpu.run(cycles + 1);
 
@@ -193,6 +206,7 @@ fn testLoadRegisterIDX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 1, 0x84);
     cpu.writeWord(0x0085, 0x9190);
     cpu.writeByte(0x9190, 0x95);
+
     cpu.x = 0x01; // No wrap around
     cpu.run(cycles);
 
@@ -203,6 +217,7 @@ fn testLoadRegisterIDX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 3, 0x85);
     cpu.writeWord(0x0000, 0x9291);
     cpu.writeByte(0x9291, 0x99);
+
     cpu.x = 0x7B; // Address wraps around
     cpu.run(cycles);
 
@@ -217,6 +232,7 @@ fn testLoadRegisterIDY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 1, 0x84);
     cpu.writeWord(0x0084, 0x9190);
     cpu.writeByte(0x9191, 0xA1);
+
     cpu.y = 0x01; // No page crossed
     cpu.run(cycles);
 
@@ -227,6 +243,7 @@ fn testLoadRegisterIDY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 3, 0x85);
     cpu.writeWord(0x0085, 0x9291);
     cpu.writeByte(0x9300, 0xA5);
+
     cpu.y = 0x6F; // Page crossed
     cpu.run(cycles + 1);
 
@@ -241,6 +258,7 @@ fn testStoreRegisterZPG(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x32);
+
     register.* = 0xAB;
     cpu.run(cycles);
 
@@ -253,6 +271,7 @@ fn testStoreRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x44);
+
     cpu.x = 0x01; // No wrap around
     register.* = 0x55;
     cpu.run(cycles);
@@ -262,6 +281,7 @@ fn testStoreRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 3, 0xFF);
+
     cpu.x = 0x02; // Address wraps around
     register.* = 0x60;
     cpu.run(cycles);
@@ -275,6 +295,7 @@ fn testStoreRegisterZPY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x44);
+
     cpu.y = 0x01; // No wrap around
     register.* = 0x55;
     cpu.run(cycles);
@@ -284,6 +305,7 @@ fn testStoreRegisterZPY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 3, 0xFF);
+
     cpu.y = 0x02; // Address wraps around
     register.* = 0x60;
     cpu.run(cycles);
@@ -297,6 +319,7 @@ fn testStoreRegisterABS(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeWord(START_ADDR + 1, 0x1234);
+
     register.* = 0x67;
     cpu.run(cycles);
 
@@ -309,6 +332,7 @@ fn testStoreRegisterABX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeWord(START_ADDR + 1, 0x5678);
+
     cpu.x = 0x01;
     register.* = 0x72;
     cpu.run(cycles);
@@ -322,6 +346,7 @@ fn testStoreRegisterABY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeWord(START_ADDR + 1, 0x5678);
+
     cpu.y = 0x01;
     register.* = 0x72;
     cpu.run(cycles);
@@ -336,6 +361,7 @@ fn testStoreRegisterIDX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x84);
     cpu.writeWord(0x0085, 0x9190);
+
     cpu.x = 0x01; // No wrap around
     register.* = 0x95;
     cpu.run(cycles);
@@ -346,6 +372,7 @@ fn testStoreRegisterIDX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 3, 0x85);
     cpu.writeWord(0x0000, 0x9291);
+
     cpu.x = 0x7B; // Address wraps around
     register.* = 0x99;
     cpu.run(cycles);
@@ -360,11 +387,46 @@ fn testStoreRegisterIDY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
     cpu.writeByte(START_ADDR + 1, 0x84);
     cpu.writeWord(0x0084, 0x9190);
+
     cpu.y = 0x01; // No page crossed
     register.* = 0xA1;
     cpu.run(cycles);
 
     try testing.expectEqual(cpu.readByte(0x9191), 0xA1);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+// ---------------------------- Transfer register ---------------------------
+
+fn testTransferRegisterFlags(cpu: *CPU, opcode: Opcode, from: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+
+    from.* = 0xBA;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+
+    cpu.writeByte(START_ADDR + 1, @intFromEnum(opcode));
+
+    from.* = 0x00;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), true);
+    try testing.expectEqual(cpu.getFlag(.N), false);
+}
+
+fn testTransferRegisterIMM(cpu: *CPU, opcode: Opcode, from: *u8, to: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+
+    from.* = 0x09;
+    cpu.run(cycles);
+
+    try testing.expectEqual(to.*, 0x09);
     try testing.expectEqual(cpu.cycles, 0);
 }
 
@@ -633,4 +695,68 @@ test "STY ABS" {
     var cpu = initCPU(&mem);
 
     try testStoreRegisterABS(&cpu, .STY_ABS, &cpu.y);
+}
+
+// --------------------- TAX - Transfer accumulator to X --------------------
+
+test "TAX Flags" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterFlags(&cpu, .TAX_IMP, &cpu.a);
+}
+
+test "TAX IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterIMM(&cpu, .TAX_IMP, &cpu.a, &cpu.x);
+}
+
+// --------------------- TAY - Transfer accumulator to Y --------------------
+
+test "TAY Flags" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterFlags(&cpu, .TAY_IMP, &cpu.a);
+}
+
+test "TAY IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterIMM(&cpu, .TAY_IMP, &cpu.a, &cpu.y);
+}
+
+// --------------------- TXA - Transfer X to accumulator --------------------
+
+test "TXA Flags" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterFlags(&cpu, .TXA_IMP, &cpu.x);
+}
+
+test "TXA IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterIMM(&cpu, .TXA_IMP, &cpu.x, &cpu.a);
+}
+
+// --------------------- TYA - Transfer Y to accumulator --------------------
+
+test "TYA Flags" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterFlags(&cpu, .TYA_IMP, &cpu.y);
+}
+
+test "TYA IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testTransferRegisterIMM(&cpu, .TYA_IMP, &cpu.y, &cpu.a);
 }
