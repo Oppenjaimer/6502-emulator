@@ -430,6 +430,54 @@ fn testTransferRegisterIMM(cpu: *CPU, opcode: Opcode, from: *u8, to: *u8) !void 
     try testing.expectEqual(cpu.cycles, 0);
 }
 
+// ----------------------------- Stack push/pull ----------------------------
+
+fn testStackPushIMM(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+
+    register.* = 0x25;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.readByte(cpu.getStackAddress() + 1), 0x25);
+    try testing.expectEqual(cpu.sp, CPU.RESET_SP - 1);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testStackPullFlags(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+
+    cpu.stackPush(0x80);
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+
+    cpu.writeByte(START_ADDR + 1, @intFromEnum(opcode));
+
+    cpu.stackPush(0x00);
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), true);
+    try testing.expectEqual(cpu.getFlag(.N), false);
+}
+
+fn testStackPullIMM(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    
+    cpu.stackPush(0x33);
+    cpu.run(cycles);
+
+    try testing.expectEqual(register.*, 0x33);
+    try testing.expectEqual(cpu.sp, CPU.RESET_SP);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
 // --------------------------------------------------------------------------
 //                               CPU CORE TESTS                              
 // --------------------------------------------------------------------------
@@ -784,4 +832,47 @@ test "TXS IMM" {
     var cpu = initCPU(&mem);
 
     try testTransferRegisterIMM(&cpu, .TXS_IMP, &cpu.x, &cpu.sp);
+}
+
+// -------------------- PHA - Push accumulator onto stack -------------------
+
+test "PHA IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStackPushIMM(&cpu, .PHA_IMP, &cpu.a);
+}
+
+// ----------------- PHP - Push processor status onto stack -----------------
+
+test "PHP IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStackPushIMM(&cpu, .PHP_IMP, &cpu.status);
+}
+
+// -------------------- PLA - Pull accumulator from stack -------------------
+
+test "PLA Flags" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStackPullFlags(&cpu, .PLA_IMP);
+}
+
+test "PLA IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStackPullIMM(&cpu, .PLA_IMP, &cpu.a);
+}
+
+// ----------------- PLP - Pull processor status from stack -----------------
+
+test "PLP IMM" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testStackPullIMM(&cpu, .PLP_IMP, &cpu.status);
 }

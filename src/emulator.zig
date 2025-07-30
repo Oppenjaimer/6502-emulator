@@ -81,6 +81,18 @@ pub const CPU = struct {
 
         // TXS - Transfer X to SP
         TXS_IMP = 0x9A,
+
+        // PHA - Push accumulator onto stack
+        PHA_IMP = 0x48,
+
+        // PHP - Push processor status onto stack
+        PHP_IMP = 0x08,
+
+        // PLA - Pull accumulator from stack
+        PLA_IMP = 0x68,
+
+        // PLP - Pull processor status from stack
+        PLP_IMP = 0x28,
     };
 
     pub const AddressingMode = enum {
@@ -219,6 +231,27 @@ pub const CPU = struct {
     pub fn setFlag(self: *CPU, flag: Flag, value: bool) void {
         if (value) self.status |= @intFromEnum(flag)
         else self.status &= ~(@intFromEnum(flag));
+    }
+
+    pub fn setFlagsZN(self: *CPU, value: u8) void {
+        self.setFlag(.Z, value == 0x00);
+        self.setFlag(.N, isBitSet(value, 7));
+    }
+
+    pub fn getStackAddress(self: *CPU) u16 {
+        return 0x0100 | @as(u16, self.sp);
+    }
+
+    pub fn stackPush(self: *CPU, value: u8) void {
+        self.writeByte(self.getStackAddress(), value);
+        self.sp -= 1;
+    }
+
+    pub fn stackPull(self: *CPU) u8 {
+        const value = self.readByte(self.getStackAddress() + 1);
+        self.sp += 1;
+
+        return value;
     }
 
     pub fn resolveAddress(self: *CPU, mode: AddressingMode) AddressResult {
@@ -366,11 +399,11 @@ pub const CPU = struct {
         self.addInstruction(.TYA_IMP, "TYA", .IMP, &executeTYA, 2);
         self.addInstruction(.TSX_IMP, "TSX", .IMP, &executeTSX, 2);
         self.addInstruction(.TXS_IMP, "TXS", .IMP, &executeTXS, 2);
-    }
 
-    fn setFlagsZN(self: *CPU, value: u8) void {
-        self.setFlag(.Z, value == 0x00);
-        self.setFlag(.N, isBitSet(value, 7));
+        self.addInstruction(.PHA_IMP, "PHA", .IMP, &executePHA, 3);
+        self.addInstruction(.PHP_IMP, "PHP", .IMP, &executePHP, 3);
+        self.addInstruction(.PLA_IMP, "PLA", .IMP, &executePLA, 4);
+        self.addInstruction(.PLP_IMP, "PLP", .IMP, &executePLP, 4);
     }
 
     // ------------------------- LDA - Load accumulator -------------------------
@@ -496,7 +529,7 @@ pub const CPU = struct {
     }
 
     // ------------------------- TSX - Transfer SP to X -------------------------
-    // Function:    X = S
+    // Function:    X = SP
     // Flags:       Z,N
 
     fn executeTSX(self: *CPU, _: AddressingMode) u1 {
@@ -507,11 +540,52 @@ pub const CPU = struct {
     }
 
     // ------------------------- TXS - Transfer X to SP -------------------------
-    // Function:    S = X
+    // Function:    SP = X
     // Flags:       none
 
     fn executeTXS(self: *CPU, _: AddressingMode) u1 {
         self.sp = self.x;
+
+        return 0; // No extra cycles
+    }
+
+    // -------------------- PHA - Push accumulator onto stack -------------------
+    // Function:    *SP = A; SP--
+    // Flags:       none
+
+    fn executePHA(self: *CPU, _: AddressingMode) u1 {
+        self.stackPush(self.a);
+
+        return 0; // No extra cycles
+    }
+
+    // ----------------- PHP - Push processor status onto stack -----------------
+    // Function:    *SP = status; SP--
+    // Flags:       none
+
+    fn executePHP(self: *CPU, _: AddressingMode) u1 {
+        self.stackPush(self.status);
+
+        return 0; // No extra cycles
+    }
+
+    // -------------------- PLA - Pull accumulator from stack -------------------
+    // Function:    A = *SP; SP++
+    // Flags:       Z,N
+
+    fn executePLA(self: *CPU, _: AddressingMode) u1 {
+        self.a = self.stackPull();
+        self.setFlagsZN(self.a);
+
+        return 0; // No extra cycles
+    }
+
+    // ----------------- PLP - Pull processor status from stack -----------------
+    // Function:    status = *SP; SP++
+    // Flags:       all
+
+    fn executePLP(self: *CPU, _: AddressingMode) u1 {
+        self.status = self.stackPull();
 
         return 0; // No extra cycles
     }
