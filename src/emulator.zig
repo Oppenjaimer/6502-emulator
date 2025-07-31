@@ -105,6 +105,9 @@ pub const CPU = struct {
         // ORA - Logical OR
         ORA_IMM = 0x09, ORA_ZPG = 0x05, ORA_ZPX = 0x15, ORA_ABS = 0x0D, ORA_ABX = 0x1D,
         ORA_ABY = 0x19, ORA_IDX = 0x01, ORA_IDY = 0x11,
+
+        // BIT - Bit test
+        BIT_ZPG = 0x24, BIT_ABS = 0x2C,
     };
 
     pub const AddressingMode = enum {
@@ -443,6 +446,9 @@ pub const CPU = struct {
         self.addInstruction(.ORA_ABY, "ORA", .ABY, &executeORA, 4);
         self.addInstruction(.ORA_IDX, "ORA", .IDX, &executeORA, 6);
         self.addInstruction(.ORA_IDY, "ORA", .IDY, &executeORA, 5);
+
+        self.addInstruction(.BIT_ZPG, "BIT", .ZPG, &executeBIT, 3);
+        self.addInstruction(.BIT_ABS, "BIT", .ABS, &executeBIT, 4);
     }
 
     // ------------------------- LDA - Load accumulator -------------------------
@@ -671,6 +677,21 @@ pub const CPU = struct {
         return @intFromBool(addr_res.pageCrossed);
     }
 
+    // ----------------------------- BIT - Bit test -----------------------------
+    // Function:    Z = !!(A & M); N = M7; V = M6
+    // Flags:       Z,V,N
+
+    fn executeBIT(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+        
+        self.setFlag(.Z, (self.a & value) == 0x00);
+        self.setFlag(.V, getBit(value, 6) == 0b1);
+        self.setFlag(.N, getBit(value, 7) == 0b1);
+
+        return 0; // No extra cycles
+    }
+
     // ------------------------ ??? - Unknown instruction -----------------------
 
     fn unknownInstruction(_: *CPU, _:AddressingMode) u1 {
@@ -684,6 +705,10 @@ pub const CPU = struct {
 
     fn decodeOpcode(byte: u8) ?Opcode {
         return std.meta.intToEnum(Opcode, byte) catch null;
+    }
+
+    fn getBit(byte: u8, bit: u3) u1 {
+        return @intCast((byte >> bit) & 0b1);
     }
 
     pub fn isBitSet(byte: u8, bit: u3) bool {

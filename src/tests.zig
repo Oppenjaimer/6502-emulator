@@ -703,6 +703,40 @@ fn testLogicalOperationIDY(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
     try testing.expectEqual(cpu.cycles, 0);
 }
 
+// -------------------------------- Bit test --------------------------------
+
+fn testBitTestZPG(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x51);
+    cpu.writeByte(0x0051, 0x93);
+
+    cpu.a = 0x01;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.V), false);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testBitTestABS(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x9876);
+    cpu.writeByte(0x9876, 0x44);
+
+    cpu.a = 0x00;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), true);
+    try testing.expectEqual(cpu.getFlag(.V), true);
+    try testing.expectEqual(cpu.getFlag(.N), false);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
 // --------------------------------------------------------------------------
 //                               CPU CORE TESTS                              
 // --------------------------------------------------------------------------
@@ -1295,4 +1329,20 @@ test "ORA IDY" {
     var cpu = initCPU(&mem);
 
     try testLogicalOperationIDY(&cpu, .ORA_IDY, &logicalOR);
+}
+
+// ----------------------------- BIT - Bit test -----------------------------
+
+test "BIT ZPG" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testBitTestZPG(&cpu, .BIT_ZPG);
+}
+
+test "BIT ABS" {
+    var mem = initMemory();
+    var cpu = initCPU(&mem);
+
+    try testBitTestABS(&cpu, .BIT_ABS);
 }
