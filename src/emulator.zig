@@ -93,6 +93,18 @@ pub const CPU = struct {
 
         // PLP - Pull processor status from stack
         PLP_IMP = 0x28,
+
+        // AND - Logical AND
+        AND_IMM = 0x29, AND_ZPG = 0x25, AND_ZPX = 0x35, AND_ABS = 0x2D, AND_ABX = 0x3D,
+        AND_ABY = 0x39, AND_IDX = 0x21, AND_IDY = 0x31,
+
+        // EOR - Exclusive OR
+        EOR_IMM = 0x49, EOR_ZPG = 0x45, EOR_ZPX = 0x55, EOR_ABS = 0x4D, EOR_ABX = 0x5D,
+        EOR_ABY = 0x59, EOR_IDX = 0x41, EOR_IDY = 0x51,
+
+        // ORA - Logical OR
+        ORA_IMM = 0x09, ORA_ZPG = 0x05, ORA_ZPX = 0x15, ORA_ABS = 0x0D, ORA_ABX = 0x1D,
+        ORA_ABY = 0x19, ORA_IDX = 0x01, ORA_IDY = 0x11,
     };
 
     pub const AddressingMode = enum {
@@ -404,6 +416,33 @@ pub const CPU = struct {
         self.addInstruction(.PHP_IMP, "PHP", .IMP, &executePHP, 3);
         self.addInstruction(.PLA_IMP, "PLA", .IMP, &executePLA, 4);
         self.addInstruction(.PLP_IMP, "PLP", .IMP, &executePLP, 4);
+
+        self.addInstruction(.AND_IMM, "AND", .IMM, &executeAND, 2);
+        self.addInstruction(.AND_ZPG, "AND", .ZPG, &executeAND, 3);
+        self.addInstruction(.AND_ZPX, "AND", .ZPX, &executeAND, 4);
+        self.addInstruction(.AND_ABS, "AND", .ABS, &executeAND, 4);
+        self.addInstruction(.AND_ABX, "AND", .ABX, &executeAND, 4);
+        self.addInstruction(.AND_ABY, "AND", .ABY, &executeAND, 4);
+        self.addInstruction(.AND_IDX, "AND", .IDX, &executeAND, 6);
+        self.addInstruction(.AND_IDY, "AND", .IDY, &executeAND, 5);
+
+        self.addInstruction(.EOR_IMM, "EOR", .IMM, &executeEOR, 2);
+        self.addInstruction(.EOR_ZPG, "EOR", .ZPG, &executeEOR, 3);
+        self.addInstruction(.EOR_ZPX, "EOR", .ZPX, &executeEOR, 4);
+        self.addInstruction(.EOR_ABS, "EOR", .ABS, &executeEOR, 4);
+        self.addInstruction(.EOR_ABX, "EOR", .ABX, &executeEOR, 4);
+        self.addInstruction(.EOR_ABY, "EOR", .ABY, &executeEOR, 4);
+        self.addInstruction(.EOR_IDX, "EOR", .IDX, &executeEOR, 6);
+        self.addInstruction(.EOR_IDY, "EOR", .IDY, &executeEOR, 5);
+
+        self.addInstruction(.ORA_IMM, "ORA", .IMM, &executeORA, 2);
+        self.addInstruction(.ORA_ZPG, "ORA", .ZPG, &executeORA, 3);
+        self.addInstruction(.ORA_ZPX, "ORA", .ZPX, &executeORA, 4);
+        self.addInstruction(.ORA_ABS, "ORA", .ABS, &executeORA, 4);
+        self.addInstruction(.ORA_ABX, "ORA", .ABX, &executeORA, 4);
+        self.addInstruction(.ORA_ABY, "ORA", .ABY, &executeORA, 4);
+        self.addInstruction(.ORA_IDX, "ORA", .IDX, &executeORA, 6);
+        self.addInstruction(.ORA_IDY, "ORA", .IDY, &executeORA, 5);
     }
 
     // ------------------------- LDA - Load accumulator -------------------------
@@ -590,6 +629,48 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
+    // ---------------------------- AND - Logical AND ---------------------------
+    // Function:    A = A & M
+    // Flags:       Z,N
+
+    fn executeAND(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+
+        self.a &= value;
+        self.setFlagsZN(self.a);
+
+        return @intFromBool(addr_res.pageCrossed);
+    }
+
+    // --------------------------- EOR - Exclusive OR ---------------------------
+    // Function:    A = A ^ M
+    // Flags:       Z,N
+
+    fn executeEOR(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+
+        self.a ^= value;
+        self.setFlagsZN(self.a);
+
+        return @intFromBool(addr_res.pageCrossed);
+    }
+
+    // ---------------------------- ORA - Logical OR ----------------------------
+    // Function:    A = A | M
+    // Flags:       Z,N
+
+    fn executeORA(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+
+        self.a |= value;
+        self.setFlagsZN(self.a);
+
+        return @intFromBool(addr_res.pageCrossed);
+    }
+
     // ------------------------ ??? - Unknown instruction -----------------------
 
     fn unknownInstruction(_: *CPU, _:AddressingMode) u1 {
@@ -605,7 +686,7 @@ pub const CPU = struct {
         return std.meta.intToEnum(Opcode, byte) catch null;
     }
 
-    fn isBitSet(byte: u8, bit: u3) bool {
+    pub fn isBitSet(byte: u8, bit: u3) bool {
         return (byte & (@as(u8, 1) << bit)) != 0;
     }
 
