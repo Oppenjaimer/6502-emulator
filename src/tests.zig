@@ -6,21 +6,42 @@ const CPU = emulator.CPU;
 const Memory = emulator.Memory;
 const Opcode = CPU.Opcode;
 
-// --------------------------------------------------------------------------
-//                                  CONSTANTS                                
-// --------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+//                                  CONSTANTS                                   
+// -----------------------------------------------------------------------------
 
 const START_ADDR: u16 = 0x3000;
 const START_HIGH: u8 = START_ADDR >> 8;
 const START_LOW:  u8 = START_ADDR & 0xFF;
 
 const LogicalOp = *const fn (u8, u8) u8;
+const ArithmeticOp = *const fn (u8, u8) u8;
 
-// --------------------------------------------------------------------------
-//                              HELPER FUNCTIONS                             
-// --------------------------------------------------------------------------
+const LoadRegSetupFn = *const fn (*CPU, u8) u1;
+const StoreRegSetupFn = *const fn (*CPU) void;
+const LogicalOpSetupFn = *const fn (*CPU, u8) u1;
+const BitTestSetupFn = *const fn (*CPU, u8) void;
 
-// ----------------------------- Initialization -----------------------------
+const TestContext = struct {
+    mem: Memory,
+    cpu: CPU,
+
+    pub fn init() TestContext {
+        var mem = initMemory();
+        const cpu = initCPU(&mem);
+
+        return TestContext {
+            .mem = mem,
+            .cpu = cpu,
+        };
+    }
+};
+
+// -----------------------------------------------------------------------------
+//                              HELPER FUNCTIONS                                
+// -----------------------------------------------------------------------------
+
+// ----------------------------- Initialization --------------------------------
 
 fn initMemory() Memory {
     var mem = Memory.init();
@@ -41,7 +62,7 @@ fn initCPU(memory: *Memory) CPU {
     return cpu;
 }
 
-// --------------------------- Logical operations ---------------------------
+// --------------------------- Logical operations ------------------------------
 
 fn logicalAND(a: u8, b: u8) u8 {
     return a & b;
@@ -55,663 +76,407 @@ fn logicalXOR(a: u8, b: u8) u8 {
     return a ^ b;
 }
 
-// ------------------------------ Miscellaneous -----------------------------
+// ------------------------------ Miscellaneous --------------------------------
 
 fn getInstructionCycles(cpu: *CPU, opcode: Opcode) u32 {
     return cpu.instruction_table[@intFromEnum(opcode)].cycles;
 }
 
-// --------------------------------------------------------------------------
-//                               TEST FUNCTIONS                              
-// --------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+//                               TEST FUNCTIONS                                 
+// -----------------------------------------------------------------------------
 
-// ------------------------------ Load register -----------------------------
+// ------------------------------ Load register --------------------------------
 
-fn testLoadRegisterFlags(cpu: *CPU, opcode: Opcode) !void {
+fn testLoadRegister(cpu: *CPU, opcode: Opcode, register: *u8, setup: LoadRegSetupFn) !void {
     const cycles = getInstructionCycles(cpu, opcode);
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x80); // Assume immediate mode
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    const extra_cycle = setup(cpu, 0x80);
 
-    cpu.run(cycles);
+    cpu.setFlag(.Z, true);
+    cpu.run(cycles + extra_cycle);
 
     try testing.expectEqual(cpu.getFlag(.Z), false);
     try testing.expectEqual(cpu.getFlag(.N), true);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0x00); // Assume immediate mode
-
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.Z), true);
-    try testing.expectEqual(cpu.getFlag(.N), false);
+    try testing.expectEqual(register.*, 0x80);
+    try testing.expectEqual(cpu.cycles, 0);
 }
 
-fn testLoadRegisterIMM(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
+fn setupLoadRegisterIMM(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, value);
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    return 0;
+}
+
+fn setupLoadRegisterZPG(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeByte(0x0011, value);
 
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x11);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 0;
 }
 
-fn testLoadRegisterZPG(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x32);
-    cpu.writeByte(0x0032, 0x33);
-
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x33);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testLoadRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x44);
-    cpu.writeByte(0x0045, 0x55);
-
-    cpu.x = 0x01; // No wrap around
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x55);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0xFF);
-    cpu.writeByte(0x0001, 0x60);
-
-    cpu.x = 0x02; // Address wraps around
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x60);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testLoadRegisterZPY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x44);
-    cpu.writeByte(0x0045, 0x55);
-
-    cpu.y = 0x01; // No wrap around
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x55);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0xFF);
-    cpu.writeByte(0x0001, 0x60);
-
-    cpu.y = 0x02; // Address wraps around
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x60);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testLoadRegisterABS(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x1234);
-    cpu.writeByte(0x1234, 0x67);
-
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x67);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testLoadRegisterABX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x5678);
-    cpu.writeByte(0x5679, 0x72);
-
-    cpu.x = 0x01; // No page crossed
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x72);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 3, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 4, 0x6789);
-    cpu.writeByte(0x3005, 0x67);
-    cpu.writeByte(0x6800, 0x79);
-
-    cpu.x = 0x77; // Page crossed
-    cpu.run(cycles + 1);
-
-    try testing.expectEqual(register.*, 0x79);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testLoadRegisterABY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x5678);
-    cpu.writeByte(0x5679, 0x72);
-
-    cpu.y = 0x01; // No page crossed
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x72);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 3, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 4, 0x89);
-    cpu.writeByte(0x3005, 0x67);
-    cpu.writeByte(0x6800, 0x79);
-
-    cpu.y = 0x77; // Page crossed
-    cpu.run(cycles + 1);
-
-    try testing.expectEqual(register.*, 0x79);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testLoadRegisterIDX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x84);
-    cpu.writeWord(0x0085, 0x9190);
-    cpu.writeByte(0x9190, 0x95);
-
-    cpu.x = 0x01; // No wrap around
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x95);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0x85);
-    cpu.writeWord(0x0000, 0x9291);
-    cpu.writeByte(0x9291, 0x99);
-
-    cpu.x = 0x7B; // Address wraps around
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x99);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testLoadRegisterIDY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x84);
-    cpu.writeWord(0x0084, 0x9190);
-    cpu.writeByte(0x9191, 0xA1);
-
-    cpu.y = 0x01; // No page crossed
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0xA1);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0x85);
-    cpu.writeWord(0x0085, 0x9291);
-    cpu.writeByte(0x9300, 0xA5);
-
-    cpu.y = 0x6F; // Page crossed
-    cpu.run(cycles + 1);
-
-    try testing.expectEqual(register.*, 0xA5);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-// ----------------------------- Store register -----------------------------
-
-fn testStoreRegisterZPG(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x32);
-
-    register.* = 0xAB;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.readByte(0x0032), 0xAB);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testStoreRegisterZPX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x44);
-
-    cpu.x = 0x01; // No wrap around
-    register.* = 0x55;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.readByte(0x0045), 0x55);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0xFF);
-
-    cpu.x = 0x02; // Address wraps around
-    register.* = 0x60;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.readByte(0x0001), 0x60);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testStoreRegisterZPY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x44);
-
-    cpu.y = 0x01; // No wrap around
-    register.* = 0x55;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.readByte(0x0045), 0x55);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0xFF);
-
-    cpu.y = 0x02; // Address wraps around
-    register.* = 0x60;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.readByte(0x0001), 0x60);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testStoreRegisterABS(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x1234);
-
-    register.* = 0x67;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.readByte(0x1234), 0x67);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testStoreRegisterABX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x5678);
-
+fn setupLoadRegisterZPXNoWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeByte(0x0012, value);
     cpu.x = 0x01;
-    register.* = 0x72;
-    cpu.run(cycles);
 
-    try testing.expectEqual(cpu.readByte(0x5679), 0x72);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 0;
 }
 
-fn testStoreRegisterABY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
+fn setupLoadRegisterZPXWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0xFF);
+    cpu.writeByte(0x0000, value);
+    cpu.x = 0x01;
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x5678);
+    return 0;
+}
 
+fn setupLoadRegisterZPYNoWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeByte(0x0012, value);
     cpu.y = 0x01;
-    register.* = 0x72;
-    cpu.run(cycles);
 
-    try testing.expectEqual(cpu.readByte(0x5679), 0x72);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 0;
 }
 
-fn testStoreRegisterIDX(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+fn setupLoadRegisterZPYWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0xFF);
+    cpu.writeByte(0x0000, value);
+    cpu.y = 0x01;
+
+    return 0;
+}
+
+fn setupLoadRegisterABS(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    cpu.writeByte(0x1234, value);
+
+    return 0;
+}
+
+fn setupLoadRegisterABXNoCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    cpu.writeByte(0x1235, value);
+    cpu.x = 0x01;
+
+    return 0;
+}
+
+fn setupLoadRegisterABXCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x10FF);
+    cpu.writeByte(0x1100, value);
+    cpu.x = 0x01;
+
+    return 1;
+}
+
+fn setupLoadRegisterABYNoCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    cpu.writeByte(0x1235, value);
+    cpu.y = 0x01;
+
+    return 0;
+}
+
+fn setupLoadRegisterABYCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x10FF);
+    cpu.writeByte(0x1100, value);
+    cpu.y = 0x01;
+
+    return 1;
+}
+
+fn setupLoadRegisterIDXNoWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeWord(0x0012, 0x1234);
+    cpu.writeByte(0x1234, value);
+    cpu.x = 0x01;
+
+    return 0;
+}
+
+fn setupLoadRegisterIDXWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0xFF);
+    cpu.writeWord(0x0000, 0x1234);
+    cpu.writeByte(0x1234, value);
+    cpu.x = 0x01;
+
+    return 0;
+}
+
+fn setupLoadRegisterIDYNoCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeWord(0x0011, 0x1234);
+    cpu.writeByte(0x1235, value);
+    cpu.y = 0x01;
+
+    return 0;
+}
+
+fn setupLoadRegisterIDYCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeWord(0x0011, 0x10FF);
+    cpu.writeByte(0x1100, value);
+    cpu.y = 0x01;
+
+    return 1;
+}
+
+// ----------------------------- Store register --------------------------------
+
+fn testStoreRegister(cpu: *CPU, opcode: Opcode, register: *u8, setup: StoreRegSetupFn) !void {
     const cycles = getInstructionCycles(cpu, opcode);
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x84);
-    cpu.writeWord(0x0085, 0x9190);
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    setup(cpu);
 
-    cpu.x = 0x01; // No wrap around
-    register.* = 0x95;
+    register.* = 0x80;
     cpu.run(cycles);
 
-    try testing.expectEqual(cpu.readByte(0x9190), 0x95);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0x85);
-    cpu.writeWord(0x0000, 0x9291);
-
-    cpu.x = 0x7B; // Address wraps around
-    register.* = 0x99;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.readByte(0x9291), 0x99);
+    try testing.expectEqual(cpu.readByte(0x0011), 0x80);
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-fn testStoreRegisterIDY(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x84);
-    cpu.writeWord(0x0084, 0x9190);
-
-    cpu.y = 0x01; // No page crossed
-    register.* = 0xA1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.readByte(0x9191), 0xA1);
-    try testing.expectEqual(cpu.cycles, 0);
+fn setupStoreRegisterZPG(cpu: *CPU) void {
+    cpu.writeByte(START_ADDR + 1, 0x11);
 }
 
-// ---------------------------- Transfer register ---------------------------
-
-fn testTransferRegisterFlags(cpu: *CPU, opcode: Opcode, from: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-
-    from.* = 0xBA;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.Z), false);
-    try testing.expectEqual(cpu.getFlag(.N), true);
-
-    cpu.writeByte(START_ADDR + 1, @intFromEnum(opcode));
-
-    from.* = 0x00;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.Z), true);
-    try testing.expectEqual(cpu.getFlag(.N), false);
+fn setupStoreRegisterZPXNoWrap(cpu: *CPU) void {
+    cpu.writeByte(START_ADDR + 1, 0x10);
+    cpu.x = 0x01;
 }
 
-fn testTransferRegisterIMM(cpu: *CPU, opcode: Opcode, from: *u8, to: *u8) !void {
+fn setupStoreRegisterZPXWrap(cpu: *CPU) void {
+    cpu.writeByte(START_ADDR + 1, 0xFF);
+    cpu.x = 0x12;
+}
+
+fn setupStoreRegisterZPYNoWrap(cpu: *CPU) void {
+    cpu.writeByte(START_ADDR + 1, 0x10);
+    cpu.y = 0x01;
+}
+
+fn setupStoreRegisterZPYWrap(cpu: *CPU) void {
+    cpu.writeByte(START_ADDR + 1, 0xFF);
+    cpu.y = 0x12;
+}
+
+fn setupStoreRegisterABS(cpu: *CPU) void {
+    cpu.writeWord(START_ADDR + 1, 0x0011);
+}
+
+fn setupStoreRegisterABX(cpu: *CPU) void {
+    cpu.writeWord(START_ADDR + 1, 0x0010);
+    cpu.x = 0x01;
+}
+
+fn setupStoreRegisterABY(cpu: *CPU) void {
+    cpu.writeWord(START_ADDR + 1, 0x0010);
+    cpu.y = 0x01;
+}
+
+fn setupStoreRegisterIDXNoWrap(cpu: *CPU) void {
+    cpu.writeByte(START_ADDR + 1, 0x22);
+    cpu.writeWord(0x0023, 0x0011);
+    cpu.x = 0x01;
+}
+
+fn setupStoreRegisterIDXWrap(cpu: *CPU) void {
+    cpu.writeByte(START_ADDR + 1, 0xFF);
+    cpu.writeWord(0x0000, 0x0011);
+    cpu.x = 0x01;
+}
+
+fn setupStoreRegisterIDY(cpu: *CPU) void {
+    cpu.writeByte(START_ADDR + 1, 0x22);
+    cpu.writeWord(0x0022, 0x0010);
+    cpu.y = 0x01;
+}
+
+// ---------------------------- Transfer register ------------------------------
+
+fn testTransferRegister(cpu: *CPU, opcode: Opcode, from: *u8, to: *u8, test_flags: bool) !void {
     const cycles = getInstructionCycles(cpu, opcode);
 
     cpu.writeByte(START_ADDR, @intFromEnum(opcode));
 
-    from.* = 0x09;
+    if (test_flags) cpu.setFlag(.Z, true);
+    from.* = 0x80;
     cpu.run(cycles);
 
-    try testing.expectEqual(to.*, 0x09);
+    if (test_flags) {
+        try testing.expectEqual(cpu.getFlag(.Z), false);
+        try testing.expectEqual(cpu.getFlag(.N), true);
+    }
+
+    try testing.expectEqual(to.*, 0x80);
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-// ----------------------------- Stack push/pull ----------------------------
+// ----------------------------- Stack push/pull -------------------------------
 
-fn testStackPushIMM(cpu: *CPU, opcode: Opcode, register: *u8) !void {
+fn testStackPush(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     const cycles = getInstructionCycles(cpu, opcode);
 
     cpu.writeByte(START_ADDR, @intFromEnum(opcode));
 
-    register.* = 0x25;
+    register.* = 0x11;
     cpu.run(cycles);
 
-    try testing.expectEqual(cpu.readByte(cpu.getStackAddress() + 1), 0x25);
+    try testing.expectEqual(cpu.readByte(cpu.getStackAddress() + 1), 0x11);
     try testing.expectEqual(cpu.sp, CPU.RESET_SP - 1);
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-fn testStackPullFlags(cpu: *CPU, opcode: Opcode) !void {
+fn testStackPull(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     const cycles = getInstructionCycles(cpu, opcode);
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
 
+    cpu.setFlag(.Z, true);
     cpu.stackPush(0x80);
     cpu.run(cycles);
 
     try testing.expectEqual(cpu.getFlag(.Z), false);
     try testing.expectEqual(cpu.getFlag(.N), true);
-
-    cpu.writeByte(START_ADDR + 1, @intFromEnum(opcode));
-
-    cpu.stackPush(0x00);
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.Z), true);
-    try testing.expectEqual(cpu.getFlag(.N), false);
-}
-
-fn testStackPullIMM(cpu: *CPU, opcode: Opcode, register: *u8) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
-    
-    cpu.stackPush(0x33);
-    cpu.run(cycles);
-
-    try testing.expectEqual(register.*, 0x33);
+    try testing.expectEqual(register.*, 0x80);
     try testing.expectEqual(cpu.sp, CPU.RESET_SP);
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-// --------------------------- Logical operations ---------------------------
+// --------------------------- Logical operations ------------------------------
 
-fn testLogicalOperationFlags(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
+fn testLogicalOperation(cpu: *CPU, opcode: Opcode, op: LogicalOp, setup: LogicalOpSetupFn) !void {
     const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0x0F, 0xF0);
+    const result = op(0xCC, 0xB1);
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x0F); // Assume immediate mode
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    const extra_cycle = setup(cpu, 0xCC);
 
-    cpu.a = 0xF0;
-    cpu.run(cycles);
+    cpu.a = 0xB1;
+    cpu.run(cycles + extra_cycle);
 
     try testing.expectEqual(cpu.getFlag(.Z), result == 0x00);
     try testing.expectEqual(cpu.getFlag(.N), CPU.isBitSet(result, 7));
-}
-
-fn testLogicalOperationIMM(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0xCC, 0xB1);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0xCC);
-
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
     try testing.expectEqual(cpu.a, result);
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-fn testLogicalOperationZPG(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0xCC, 0xB1);
+fn setupLogicalOperationIMM(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, value);
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    return 0;
+}
+
+fn setupLogicalOperationZPG(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0x11);
-    cpu.writeByte(0x0011, 0xCC);
+    cpu.writeByte(0x0011, value);
 
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 0;
 }
 
-fn testLogicalOperationZPX(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0xCC, 0xB1);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+fn setupLogicalOperationZPXNoWrap(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0x11);
-    cpu.writeByte(0x0012, 0xCC);
+    cpu.writeByte(0x0012, value);
+    cpu.x = 0x01;
 
-    cpu.x = 0x01; // No wrap around
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0x11);
-    cpu.writeByte(0x0010, 0xCC);
-
-    cpu.x = 0xFF; // Address wraps around
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 0;
 }
 
-fn testLogicalOperationABS(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0xCC, 0xB1);
+fn setupLogicalOperationZPXWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0xFF);
+    cpu.writeByte(0x0000, value);
+    cpu.x = 0x01;
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    return 0;
+}
+
+fn setupLogicalOperationABS(cpu: *CPU, value: u8) u1 {
     cpu.writeWord(START_ADDR + 1, 0x1234);
-    cpu.writeByte(0x1234, 0xCC);
+    cpu.writeByte(0x1234, value);
 
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 0;
 }
 
-fn testLogicalOperationABX(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0xCC, 0xB1);
+fn setupLogicalOperationABXNoCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    cpu.writeByte(0x1235, value);
+    cpu.x = 0x01;
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x5678);
-    cpu.writeByte(0x5679, 0xCC);
-
-    cpu.x = 0x01; // No page crossed
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 3, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 4, 0x6789);
-    cpu.writeByte(0x3005, 0x67);
-    cpu.writeByte(0x6800, 0xCC);
-
-    cpu.x = 0x77; // Page crossed
-    cpu.a = 0xB1;
-    cpu.run(cycles + 1);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 0;
 }
 
-fn testLogicalOperationABY(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0xCC, 0xB1);
+fn setupLogicalOperationABXCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x10FF);
+    cpu.writeByte(0x1100, value);
+    cpu.x = 0x01;
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x5678);
-    cpu.writeByte(0x5679, 0xCC);
-
-    cpu.y = 0x01; // No page crossed
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 3, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 4, 0x6789);
-    cpu.writeByte(0x3005, 0x67);
-    cpu.writeByte(0x6800, 0xCC);
-
-    cpu.y = 0x77; // Page crossed
-    cpu.a = 0xB1;
-    cpu.run(cycles + 1);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 1;
 }
 
-fn testLogicalOperationIDX(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0xCC, 0xB1);
+fn setupLogicalOperationABYNoCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    cpu.writeByte(0x1235, value);
+    cpu.y = 0x01;
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x84);
-    cpu.writeWord(0x0085, 0x9190);
-    cpu.writeByte(0x9190, 0xCC);
-
-    cpu.x = 0x01; // No wrap around
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0x85);
-    cpu.writeWord(0x0000, 0x9291);
-    cpu.writeByte(0x9291, 0xCC);
-
-    cpu.x = 0x7B; // Address wraps around
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 0;
 }
 
-fn testLogicalOperationIDY(cpu: *CPU, opcode: Opcode, op: LogicalOp) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-    const result = op(0xCC, 0xB1);
+fn setupLogicalOperationABYCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeWord(START_ADDR + 1, 0x10FF);
+    cpu.writeByte(0x1100, value);
+    cpu.y = 0x01;
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x84);
-    cpu.writeWord(0x0084, 0x9190);
-    cpu.writeByte(0x9191, 0xCC);
-
-    cpu.y = 0x01; // No page crossed
-    cpu.a = 0xB1;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0x85);
-    cpu.writeWord(0x0085, 0x9291);
-    cpu.writeByte(0x9300, 0xCC);
-
-    cpu.y = 0x6F; // Page crossed
-    cpu.a = 0xB1;
-    cpu.run(cycles + 1);
-
-    try testing.expectEqual(cpu.a, result);
-    try testing.expectEqual(cpu.cycles, 0);
+    return 1;
 }
 
-// -------------------------------- Bit test --------------------------------
+fn setupLogicalOperationIDXNoWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeWord(0x0012, 0x1234);
+    cpu.writeByte(0x1234, value);
+    cpu.x = 0x01;
 
-fn testBitTestZPG(cpu: *CPU, opcode: Opcode) !void {
+    return 0;
+}
+
+fn setupLogicalOperationIDXWrap(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0xFF);
+    cpu.writeWord(0x0000, 0x1234);
+    cpu.writeByte(0x1234, value);
+    cpu.x = 0x01;
+
+    return 0;
+}
+
+fn setupLogicalOperationIDYNoCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeWord(0x0011, 0x1234);
+    cpu.writeByte(0x1235, value);
+    cpu.y = 0x01;
+
+    return 0;
+}
+
+fn setupLogicalOperationIDYCross(cpu: *CPU, value: u8) u1 {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeWord(0x0011, 0x10FF);
+    cpu.writeByte(0x1100, value);
+    cpu.y = 0x01;
+
+    return 1;
+}
+
+// -------------------------------- Bit test -----------------------------------
+
+fn testBitTest(cpu: *CPU, opcode: Opcode, setup: BitTestSetupFn) !void {
     const cycles = getInstructionCycles(cpu, opcode);
 
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x51);
-    cpu.writeByte(0x0051, 0x93);
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    setup(cpu, 0x93);
 
+    cpu.setFlag(.Z, true);
+    cpu.setFlag(.V, true);
     cpu.a = 0x01;
     cpu.run(cycles);
 
@@ -721,28 +486,133 @@ fn testBitTestZPG(cpu: *CPU, opcode: Opcode) !void {
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-fn testBitTestABS(cpu: *CPU, opcode: Opcode) !void {
+fn setupBitTestZPG(cpu: *CPU, value: u8) void {
+    cpu.writeByte(START_ADDR + 1, 0x11);
+    cpu.writeByte(0x0011, value);
+}
+
+fn setupBitTestABS(cpu: *CPU, value: u8) void {
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    cpu.writeByte(0x1234, value);
+}
+
+// -------------------------- Arithmetic operations ----------------------------
+
+fn testArithmeticOperationFlags(cpu: *CPU, opcode: Opcode) !void {
     const cycles = getInstructionCycles(cpu, opcode);
 
     cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeWord(START_ADDR + 1, 0x9876);
-    cpu.writeByte(0x9876, 0x44);
+    cpu.writeByte(START_ADDR + 1, 0x00); // Assume immediate mode
 
+    cpu.setFlag(.C, false);
     cpu.a = 0x00;
     cpu.run(cycles);
 
+    try testing.expectEqual(cpu.getFlag(.C), false);
     try testing.expectEqual(cpu.getFlag(.Z), true);
-    try testing.expectEqual(cpu.getFlag(.V), true);
+    try testing.expectEqual(cpu.getFlag(.V), false);
     try testing.expectEqual(cpu.getFlag(.N), false);
+
+    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 3, 0x00); // Assume immediate mode
+
+    cpu.setFlag(.C, true);
+    cpu.a = 0x00;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.C), false);
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.V), false);
+    try testing.expectEqual(cpu.getFlag(.N), false);
+
+    cpu.writeByte(START_ADDR + 4, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 5, 0xFF); // Assume immediate mode
+
+    cpu.setFlag(.C, false);
+    cpu.a = 0x01;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.C), true);
+    try testing.expectEqual(cpu.getFlag(.Z), true);
+    try testing.expectEqual(cpu.getFlag(.V), false);
+    try testing.expectEqual(cpu.getFlag(.N), false);
+
+    cpu.writeByte(START_ADDR + 6, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 7, 0xF0); // Assume immediate mode
+
+    cpu.setFlag(.C, false);
+    cpu.a = 0xF2;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.C), true);
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.V), false);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+
+    cpu.writeByte(START_ADDR + 8, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 9, 0x00); // Assume immediate mode
+
+    cpu.setFlag(.C, true);
+    cpu.a = 0x7F;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.C), false);
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.V), true);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+}
+
+fn testArithmeticOperationIMM(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x32);
+
+    cpu.setFlag(.C, true);
+    cpu.a = 0x05;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.a, 0x38);
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-// --------------------------------------------------------------------------
-//                               CPU CORE TESTS                              
-// --------------------------------------------------------------------------
+fn testArithmeticOperationZPG(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x66);
+    cpu.writeByte(0x0066, 0x32);
+
+    cpu.setFlag(.C, true);
+    cpu.a = 0x05;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.a, 0x38);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testArithmeticOperationZPX(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0x66);
+    cpu.writeByte(0x0066, 0x32);
+
+    cpu.setFlag(.C, true);
+    cpu.x = 0x01;
+    cpu.a = 0x05;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.a, 0x38);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+// -----------------------------------------------------------------------------
+//                               CPU CORE TESTS                                 
+// -----------------------------------------------------------------------------
 
 test "CPU Cycles" {
-    var mem = Memory.init();
+    var mem = initMemory();
     var cpu = CPU.init(&mem);
 
     cpu.run(4); // Startup/Reset takes 7 cycles
@@ -750,599 +620,521 @@ test "CPU Cycles" {
     try testing.expectEqual(cpu.cycles, 3); // 3 cycles remaining
 }
 
-// --------------------------------------------------------------------------
-//                              INSTRUCTION TESTS                            
-// --------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+//                              INSTRUCTION TESTS                               
+// -----------------------------------------------------------------------------
 
-// ------------------------- LDA - Load accumulator -------------------------
-
-test "LDA Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-    
-    try testLoadRegisterFlags(&cpu, .LDA_IMM);
-}
+// ------------------------- LDA - Load accumulator ----------------------------
 
 test "LDA IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterIMM(&cpu, .LDA_IMM, &cpu.a);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_IMM, &ctx.cpu.a, &setupLoadRegisterIMM);
 }
 
 test "LDA ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterZPG(&cpu, .LDA_ZPG, &cpu.a);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_ZPG, &ctx.cpu.a, &setupLoadRegisterZPG);
 }
 
-test "LDA ZPX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "LDA ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_ZPX, &ctx.cpu.a, &setupLoadRegisterZPXNoWrap);
+}
 
-    try testLoadRegisterZPX(&cpu, .LDA_ZPX, &cpu.a);
+test "LDA ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_ZPX, &ctx.cpu.a, &setupLoadRegisterZPXWrap);
 }
 
 test "LDA ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterABS(&cpu, .LDA_ABS, &cpu.a);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_ABS, &ctx.cpu.a, &setupLoadRegisterABS);
 }
 
-test "LDA ABX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterABX(&cpu, .LDA_ABX, &cpu.a);
+test "LDA ABX without page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_ABX, &ctx.cpu.a,&setupLoadRegisterABXNoCross);
 }
 
-test "LDA ABY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterABY(&cpu, .LDA_ABY, &cpu.a);
+test "LDA ABX with page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_ABX, &ctx.cpu.a,&setupLoadRegisterABXCross);
 }
 
-test "LDA IDX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterIDX(&cpu, .LDA_IDX, &cpu.a);
+test "LDA ABY without page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_ABY, &ctx.cpu.a,&setupLoadRegisterABYNoCross);
 }
 
-test "LDA IDY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterIDY(&cpu, .LDA_IDY, &cpu.a);
+test "LDA ABY with page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_ABY, &ctx.cpu.a,&setupLoadRegisterABYCross);
 }
 
-// -------------------------- LDX - Load X register -------------------------
-
-test "LDX Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-    
-    try testLoadRegisterFlags(&cpu, .LDX_IMM);
+test "LDA IDX without wrap around" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_IDX, &ctx.cpu.a, &setupLoadRegisterIDXNoWrap);
 }
+
+test "LDA IDX with wrap around" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_IDX, &ctx.cpu.a, &setupLoadRegisterIDXWrap);
+}
+
+test "LDA IDY without page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_IDY, &ctx.cpu.a, &setupLoadRegisterIDYNoCross);
+}
+
+test "LDA IDY with page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDA_IDY, &ctx.cpu.a, &setupLoadRegisterIDYCross);
+}
+
+// -------------------------- LDX - Load X register ----------------------------
 
 test "LDX IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterIMM(&cpu, .LDX_IMM, &cpu.x);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDX_IMM, &ctx.cpu.x, &setupLoadRegisterIMM);
 }
 
 test "LDX ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterZPG(&cpu, .LDX_ZPG, &cpu.x);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDX_ZPG, &ctx.cpu.x, &setupLoadRegisterZPG);
 }
 
-test "LDX ZPY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "LDX ZPY with wrap around" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDX_ZPY, &ctx.cpu.x, &setupLoadRegisterZPYNoWrap);
+}
 
-    try testLoadRegisterZPY(&cpu, .LDX_ZPY, &cpu.x);
+test "LDX ZPY without wrap around" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDX_ZPY, &ctx.cpu.x, &setupLoadRegisterZPYWrap);
 }
 
 test "LDX ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterABS(&cpu, .LDX_ABS, &cpu.x);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDX_ABS, &ctx.cpu.x, &setupLoadRegisterABS);
 }
 
-test "LDX ABY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterABY(&cpu, .LDX_ABY, &cpu.x);
+test "LDX ABY without page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDX_ABY, &ctx.cpu.x, &setupLoadRegisterABYNoCross);
 }
 
-// -------------------------- LDY - Load Y register -------------------------
-
-test "LDY Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-    
-    try testLoadRegisterFlags(&cpu, .LDY_IMM);
+test "LDX ABY with page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDX_ABY, &ctx.cpu.x, &setupLoadRegisterABYCross);
 }
+
+// -------------------------- LDY - Load Y register ----------------------------
 
 test "LDY IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterIMM(&cpu, .LDY_IMM, &cpu.y);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDY_IMM, &ctx.cpu.y, &setupLoadRegisterIMM);
 }
 
 test "LDY ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterZPG(&cpu, .LDY_ZPG, &cpu.y);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDY_ZPG, &ctx.cpu.y, &setupLoadRegisterZPG);
 }
 
-test "LDY ZPX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "LDY ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDY_ZPX, &ctx.cpu.y, &setupLoadRegisterZPXNoWrap);
+}
 
-    try testLoadRegisterZPX(&cpu, .LDY_ZPX, &cpu.y);
+test "LDY ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDY_ZPX, &ctx.cpu.y, &setupLoadRegisterZPXWrap);
 }
 
 test "LDY ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterABS(&cpu, .LDY_ABS, &cpu.y);
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDY_ABS, &ctx.cpu.y, &setupLoadRegisterABS);
 }
 
-test "LDY ABX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLoadRegisterABX(&cpu, .LDY_ABX, &cpu.y);
+test "LDY ABX without page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDY_ABX, &ctx.cpu.y, &setupLoadRegisterABXNoCross);
 }
 
-// ------------------------- STA - Store accumulator ------------------------
+test "LDY ABX with page crossing" {
+    var ctx = TestContext.init();
+    try testLoadRegister(&ctx.cpu, .LDY_ABX, &ctx.cpu.y, &setupLoadRegisterABXCross);
+}
+
+// ------------------------- STA - Store accumulator ---------------------------
 
 test "STA ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterZPG(&cpu, .STA_ZPG, &cpu.a);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_ZPG, &ctx.cpu.a, &setupStoreRegisterZPG);
 }
 
-test "STA ZPX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "STA ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_ZPX, &ctx.cpu.a, &setupStoreRegisterZPXNoWrap);
+}
 
-    try testStoreRegisterZPX(&cpu, .STA_ZPX, &cpu.a);
+test "STA ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_ZPX, &ctx.cpu.a, &setupStoreRegisterZPXWrap);
 }
 
 test "STA ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterABS(&cpu, .STA_ABS, &cpu.a);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_ABS, &ctx.cpu.a, &setupStoreRegisterABS);
 }
 
 test "STA ABX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterABX(&cpu, .STA_ABX, &cpu.a);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_ABX, &ctx.cpu.a, &setupStoreRegisterABX);
 }
 
 test "STA ABY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterABY(&cpu, .STA_ABY, &cpu.a);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_ABY, &ctx.cpu.a, &setupStoreRegisterABY);
 }
 
-test "STA IDX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "STA IDX without wrap around" {
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_IDX, &ctx.cpu.a, &setupStoreRegisterIDXNoWrap);
+}
 
-    try testStoreRegisterIDX(&cpu, .STA_IDX, &cpu.a);
+test "STA IDX with wrap around" {
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_IDX, &ctx.cpu.a, &setupStoreRegisterIDXWrap);
 }
 
 test "STA IDY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterIDY(&cpu, .STA_IDY, &cpu.a);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STA_IDY, &ctx.cpu.a, &setupStoreRegisterIDY);
 }
 
-// ------------------------- STX - Store X register -------------------------
+// ------------------------- STX - Store X register ----------------------------
 
 test "STX ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterZPG(&cpu, .STX_ZPG, &cpu.x);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STX_ZPG, &ctx.cpu.x, &setupStoreRegisterZPG);
 }
 
-test "STX ZPY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "STX ZPY without wrap around" {
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STX_ZPY, &ctx.cpu.x, &setupStoreRegisterZPYNoWrap);
+}
 
-    try testStoreRegisterZPY(&cpu, .STX_ZPY, &cpu.x);
+test "STX ZPY with wrap around" {
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STX_ZPY, &ctx.cpu.x, &setupStoreRegisterZPYWrap);
 }
 
 test "STX ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterABS(&cpu, .STX_ABS, &cpu.x);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STX_ABS, &ctx.cpu.x, &setupStoreRegisterABS);
 }
 
-// ------------------------- STY - Store Y register -------------------------
+// ------------------------- STY - Store Y register ----------------------------
 
 test "STY ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterZPG(&cpu, .STY_ZPG, &cpu.y);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STY_ZPG, &ctx.cpu.y, &setupStoreRegisterZPG);
 }
 
-test "STY ZPX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "STY ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STY_ZPX, &ctx.cpu.y, &setupStoreRegisterZPXNoWrap);
+}
 
-    try testStoreRegisterZPX(&cpu, .STY_ZPX, &cpu.y);
+test "STY ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STY_ZPX, &ctx.cpu.y, &setupStoreRegisterZPXWrap);
 }
 
 test "STY ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStoreRegisterABS(&cpu, .STY_ABS, &cpu.y);
+    var ctx = TestContext.init();
+    try testStoreRegister(&ctx.cpu, .STY_ABS, &ctx.cpu.y, &setupStoreRegisterABS);
 }
 
-// --------------------- TAX - Transfer accumulator to X --------------------
+// --------------------- TAX - Transfer accumulator to X -----------------------
 
-test "TAX Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testTransferRegisterFlags(&cpu, .TAX_IMP, &cpu.a);
+test "TAX IMP" {
+    var ctx = TestContext.init();
+    try testTransferRegister(&ctx.cpu, .TAX_IMP, &ctx.cpu.a, &ctx.cpu.x, true);
 }
 
-test "TAX IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+// --------------------- TAY - Transfer accumulator to Y -----------------------
 
-    try testTransferRegisterIMM(&cpu, .TAX_IMP, &cpu.a, &cpu.x);
+test "TAY IMP" {
+    var ctx = TestContext.init();
+    try testTransferRegister(&ctx.cpu, .TAY_IMP, &ctx.cpu.a, &ctx.cpu.y, true);
 }
 
-// --------------------- TAY - Transfer accumulator to Y --------------------
+// --------------------- TXA - Transfer X to accumulator -----------------------
 
-test "TAY Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testTransferRegisterFlags(&cpu, .TAY_IMP, &cpu.a);
+test "TXA IMP" {
+    var ctx = TestContext.init();
+    try testTransferRegister(&ctx.cpu, .TXA_IMP, &ctx.cpu.x, &ctx.cpu.a, true);
 }
 
-test "TAY IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+// --------------------- TYA - Transfer Y to accumulator -----------------------
 
-    try testTransferRegisterIMM(&cpu, .TAY_IMP, &cpu.a, &cpu.y);
+test "TYA IMP" {
+    var ctx = TestContext.init();
+    try testTransferRegister(&ctx.cpu, .TYA_IMP, &ctx.cpu.y, &ctx.cpu.a, true);
 }
 
-// --------------------- TXA - Transfer X to accumulator --------------------
+// ------------------------- TSX - Transfer SP to X ----------------------------
 
-test "TXA Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testTransferRegisterFlags(&cpu, .TXA_IMP, &cpu.x);
+test "TSX IMP" {
+    var ctx = TestContext.init();
+    try testTransferRegister(&ctx.cpu, .TSX_IMP, &ctx.cpu.sp, &ctx.cpu.x, true);
 }
 
-test "TXA IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+// ------------------------- TXS - Transfer X to SP ----------------------------
 
-    try testTransferRegisterIMM(&cpu, .TXA_IMP, &cpu.x, &cpu.a);
+test "TXS IMP" {
+    var ctx = TestContext.init();
+    try testTransferRegister(&ctx.cpu, .TXS_IMP, &ctx.cpu.x, &ctx.cpu.sp, false);
 }
 
-// --------------------- TYA - Transfer Y to accumulator --------------------
+// -------------------- PHA - Push accumulator onto stack ----------------------
 
-test "TYA Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testTransferRegisterFlags(&cpu, .TYA_IMP, &cpu.y);
+test "PHA IMP" {
+    var ctx = TestContext.init();
+    try testStackPush(&ctx.cpu, .PHA_IMP, &ctx.cpu.a);
 }
 
-test "TYA IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+// ----------------- PHP - Push processor status onto stack --------------------
 
-    try testTransferRegisterIMM(&cpu, .TYA_IMP, &cpu.y, &cpu.a);
+test "PHP IMP" {
+    var ctx = TestContext.init();
+    try testStackPush(&ctx.cpu, .PHP_IMP, &ctx.cpu.status);
 }
 
-// ------------------------- TSX - Transfer SP to X -------------------------
+// -------------------- PLA - Pull accumulator from stack ----------------------
 
-test "TSX Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testTransferRegisterFlags(&cpu, .TSX_IMP, &cpu.sp);
+test "PLA IMP" {
+    var ctx = TestContext.init();
+    try testStackPull(&ctx.cpu, .PLA_IMP, &ctx.cpu.a);
 }
 
-test "TSX IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+// ----------------- PLP - Pull processor status from stack --------------------
 
-    try testTransferRegisterIMM(&cpu, .TSX_IMP, &cpu.sp, &cpu.x);
+test "PLP IMP" {
+    var ctx = TestContext.init();
+    try testStackPull(&ctx.cpu, .PLP_IMP, &ctx.cpu.status);
 }
 
-// ------------------------- TXS - Transfer X to SP -------------------------
-
-test "TXS IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testTransferRegisterIMM(&cpu, .TXS_IMP, &cpu.x, &cpu.sp);
-}
-
-// -------------------- PHA - Push accumulator onto stack -------------------
-
-test "PHA IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStackPushIMM(&cpu, .PHA_IMP, &cpu.a);
-}
-
-// ----------------- PHP - Push processor status onto stack -----------------
-
-test "PHP IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStackPushIMM(&cpu, .PHP_IMP, &cpu.status);
-}
-
-// -------------------- PLA - Pull accumulator from stack -------------------
-
-test "PLA Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStackPullFlags(&cpu, .PLA_IMP);
-}
-
-test "PLA IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStackPullIMM(&cpu, .PLA_IMP, &cpu.a);
-}
-
-// ----------------- PLP - Pull processor status from stack -----------------
-
-test "PLP IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testStackPullIMM(&cpu, .PLP_IMP, &cpu.status);
-}
-
-// ---------------------------- AND - Logical AND ---------------------------
-
-test "AND Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationFlags(&cpu, .AND_IMM, &logicalAND);
-}
+// ---------------------------- AND - Logical AND ------------------------------
 
 test "AND IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIMM(&cpu, .AND_IMM, &logicalAND);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_IMM, &logicalAND, &setupLogicalOperationIMM);
 }
 
 test "AND ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationZPG(&cpu, .AND_ZPG, &logicalAND);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_ZPG, &logicalAND, &setupLogicalOperationZPG);
 }
 
-test "AND ZPX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "AND ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_ZPX, &logicalAND, &setupLogicalOperationZPXNoWrap);
+}
 
-    try testLogicalOperationZPX(&cpu, .AND_ZPX, &logicalAND);
+test "AND ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_ZPX, &logicalAND, &setupLogicalOperationZPXWrap);
 }
 
 test "AND ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABS(&cpu, .AND_ABS, &logicalAND);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_ABS, &logicalAND, &setupLogicalOperationABS);
 }
 
-test "AND ABX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABX(&cpu, .AND_ABX, &logicalAND);
+test "AND ABX without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_ABX, &logicalAND, &setupLogicalOperationABXNoCross);
 }
 
-test "AND ABY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABY(&cpu, .AND_ABY, &logicalAND);
+test "AND ABX with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_ABX, &logicalAND, &setupLogicalOperationABXCross);
 }
 
-test "AND IDX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIDX(&cpu, .AND_IDX, &logicalAND);
+test "AND ABY without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_ABY, &logicalAND, &setupLogicalOperationABYNoCross);
 }
 
-test "AND IDY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIDY(&cpu, .AND_IDY, &logicalAND);
+test "AND ABY with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_ABY, &logicalAND, &setupLogicalOperationABYCross);
 }
 
-// --------------------------- EOR - Exclusive OR ---------------------------
-
-test "EOR Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationFlags(&cpu, .EOR_IMM, &logicalXOR);
+test "AND IDX without wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_IDX, &logicalAND, &setupLogicalOperationIDXNoWrap);
 }
+
+test "AND IDX with wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_IDX, &logicalAND, &setupLogicalOperationIDXWrap);
+}
+
+test "AND IDY without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_IDY, &logicalAND, &setupLogicalOperationIDYNoCross);
+}
+
+test "AND IDY with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .AND_IDY, &logicalAND, &setupLogicalOperationIDYCross);
+}
+
+// --------------------------- EOR - Exclusive OR ------------------------------
 
 test "EOR IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIMM(&cpu, .EOR_IMM, &logicalXOR);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_IMM, &logicalXOR, &setupLogicalOperationIMM);
 }
 
 test "EOR ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationZPG(&cpu, .EOR_ZPG, &logicalXOR);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_ZPG, &logicalXOR, &setupLogicalOperationZPG);
 }
 
-test "EOR ZPX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "EOR ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_ZPX, &logicalXOR, &setupLogicalOperationZPXNoWrap);
+}
 
-    try testLogicalOperationZPX(&cpu, .EOR_ZPX, &logicalXOR);
+test "EOR ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_ZPX, &logicalXOR, &setupLogicalOperationZPXWrap);
 }
 
 test "EOR ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABS(&cpu, .EOR_ABS, &logicalXOR);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_ABS, &logicalXOR, &setupLogicalOperationABS);
 }
 
-test "EOR ABX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABX(&cpu, .EOR_ABX, &logicalXOR);
+test "EOR ABX without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_ABX, &logicalXOR, &setupLogicalOperationABXNoCross);
 }
 
-test "EOR ABY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABY(&cpu, .EOR_ABY, &logicalXOR);
+test "EOR ABX with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_ABX, &logicalXOR, &setupLogicalOperationABXCross);
 }
 
-test "EOR IDX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIDX(&cpu, .EOR_IDX, &logicalXOR);
+test "EOR ABY without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_ABY, &logicalXOR, &setupLogicalOperationABYNoCross);
 }
 
-test "EOR IDY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIDY(&cpu, .EOR_IDY, &logicalXOR);
+test "EOR ABY with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_ABY, &logicalXOR, &setupLogicalOperationABYCross);
 }
 
-// ---------------------------- ORA - Logical OR ----------------------------
-
-test "ORA Flags" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationFlags(&cpu, .ORA_IMM, &logicalOR);
+test "EOR IDX without wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_IDX, &logicalXOR, &setupLogicalOperationIDXNoWrap);
 }
+
+test "EOR IDX with wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_IDX, &logicalXOR, &setupLogicalOperationIDXWrap);
+}
+
+test "EOR IDY without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_IDY, &logicalXOR, &setupLogicalOperationIDYNoCross);
+}
+
+test "EOR IDY with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .EOR_IDY, &logicalXOR, &setupLogicalOperationIDYCross);
+}
+
+// ---------------------------- ORA - Logical OR -------------------------------
 
 test "ORA IMM" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIMM(&cpu, .ORA_IMM, &logicalOR);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_IMM, &logicalOR, &setupLogicalOperationIMM);
 }
 
 test "ORA ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationZPG(&cpu, .ORA_ZPG, &logicalOR);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_ZPG, &logicalOR, &setupLogicalOperationZPG);
 }
 
-test "ORA ZPX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
+test "ORA ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_ZPX, &logicalOR, &setupLogicalOperationZPXNoWrap);
+}
 
-    try testLogicalOperationZPX(&cpu, .ORA_ZPX, &logicalOR);
+test "ORA ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_ZPX, &logicalOR, &setupLogicalOperationZPXWrap);
 }
 
 test "ORA ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABS(&cpu, .ORA_ABS, &logicalOR);
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_ABS, &logicalOR, &setupLogicalOperationABS);
 }
 
-test "ORA ABX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABX(&cpu, .ORA_ABX, &logicalOR);
+test "ORA ABX without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_ABX, &logicalOR, &setupLogicalOperationABXNoCross);
 }
 
-test "ORA ABY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationABY(&cpu, .ORA_ABY, &logicalOR);
+test "ORA ABX with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_ABX, &logicalOR, &setupLogicalOperationABXCross);
 }
 
-test "ORA IDX" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIDX(&cpu, .ORA_IDX, &logicalOR);
+test "ORA ABY without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_ABY, &logicalOR, &setupLogicalOperationABYNoCross);
 }
 
-test "ORA IDY" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testLogicalOperationIDY(&cpu, .ORA_IDY, &logicalOR);
+test "ORA ABY with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_ABY, &logicalOR, &setupLogicalOperationABYCross);
 }
 
-// ----------------------------- BIT - Bit test -----------------------------
+test "ORA IDX without wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_IDX, &logicalOR, &setupLogicalOperationIDXNoWrap);
+}
+
+test "ORA IDX with wrap around" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_IDX, &logicalOR, &setupLogicalOperationIDXWrap);
+}
+
+test "ORA IDY without page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_IDY, &logicalOR, &setupLogicalOperationIDYNoCross);
+}
+
+test "ORA IDY with page crossing" {
+    var ctx = TestContext.init();
+    try testLogicalOperation(&ctx.cpu, .ORA_IDY, &logicalOR, &setupLogicalOperationIDYCross);
+}
+
+// ----------------------------- BIT - Bit test --------------------------------
 
 test "BIT ZPG" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testBitTestZPG(&cpu, .BIT_ZPG);
+    var ctx = TestContext.init();
+    try testBitTest(&ctx.cpu, .BIT_ZPG, &setupBitTestZPG);
 }
 
 test "BIT ABS" {
-    var mem = initMemory();
-    var cpu = initCPU(&mem);
-
-    try testBitTestABS(&cpu, .BIT_ABS);
+    var ctx = TestContext.init();
+    try testBitTest(&ctx.cpu, .BIT_ABS, &setupBitTestABS);
 }
