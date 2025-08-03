@@ -21,9 +21,9 @@ pub const Memory = struct {
 };
 
 pub const CPU = struct {
-    // --------------------------------------------------------------------------
-    //                                  CONSTANTS                                
-    // --------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------
+    //                                  CONSTANTS                                   
+    // -----------------------------------------------------------------------------
 
     pub const RESET_VECTOR: u16   = 0xFFFC;     // Load PC from reset vector
     pub const RESET_SP:     u8    = 0xFD;       // Starts at 0, then gets decremented 3 times
@@ -108,6 +108,14 @@ pub const CPU = struct {
 
         // BIT - Bit test
         BIT_ZPG = 0x24, BIT_ABS = 0x2C,
+
+        // ADC - Add with carry
+        ADC_IMM = 0x69, ADC_ZPG = 0x65, ADC_ZPX = 0x75, ADC_ABS = 0x6D, ADC_ABX = 0x7D,
+        ADC_ABY = 0x79, ADC_IDX = 0x61, ADC_IDY = 0x71,
+
+        // SBC - Subtract with carry
+        SBC_IMM = 0xE9, SBC_ZPG = 0xE5, SBC_ZPX = 0xF5, SBC_ABS = 0xED, SBC_ABX = 0xFD,
+        SBC_ABY = 0xF9, SBC_IDX = 0xE1, SBC_IDY = 0xF1,
     };
 
     pub const AddressingMode = enum {
@@ -139,9 +147,9 @@ pub const CPU = struct {
         cycles: u32,                    // Number of clock cycles required
     };
 
-    // --------------------------------------------------------------------------
-    //                                   FIELDS                                  
-    // --------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------
+    //                                   FIELDS                                     
+    // -----------------------------------------------------------------------------
 
     pc: u16,            // Program counter
     sp: u8,             // Stack pointer
@@ -156,9 +164,9 @@ pub const CPU = struct {
     // row, so that instruction opcodes can be used to index the table.
     instruction_table: [TABLE_SIZE]Instruction,
 
-    // --------------------------------------------------------------------------
-    //                                CORE METHODS                               
-    // --------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------
+    //                                CORE METHODS                                  
+    // -----------------------------------------------------------------------------
 
     pub fn init(memory: *Memory) CPU {
         var cpu: CPU = undefined;
@@ -340,9 +348,9 @@ pub const CPU = struct {
         return instruction.cycles + extra_cycle;
     }
 
-    // --------------------------------------------------------------------------
-    //                                INSTRUCTIONS                               
-    // --------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------
+    //                                INSTRUCTIONS                                  
+    // -----------------------------------------------------------------------------
 
     // Reference: http://www.6502.org/users/obelisk/6502/reference.html
 
@@ -449,9 +457,27 @@ pub const CPU = struct {
 
         self.addInstruction(.BIT_ZPG, "BIT", .ZPG, &executeBIT, 3);
         self.addInstruction(.BIT_ABS, "BIT", .ABS, &executeBIT, 4);
+
+        self.addInstruction(.ADC_IMM, "ADC", .IMM, &executeADC, 2);
+        self.addInstruction(.ADC_ZPG, "ADC", .ZPG, &executeADC, 3);
+        self.addInstruction(.ADC_ZPX, "ADC", .ZPX, &executeADC, 4);
+        self.addInstruction(.ADC_ABS, "ADC", .ABS, &executeADC, 4);
+        self.addInstruction(.ADC_ABX, "ADC", .ABX, &executeADC, 4);
+        self.addInstruction(.ADC_ABY, "ADC", .ABY, &executeADC, 4);
+        self.addInstruction(.ADC_IDX, "ADC", .IDX, &executeADC, 6);
+        self.addInstruction(.ADC_IDY, "ADC", .IDY, &executeADC, 5);
+
+        // self.addInstruction(.SBC_IMM, "SBC", .IMM, &executeSBC, 2);
+        // self.addInstruction(.SBC_ZPG, "SBC", .ZPG, &executeSBC, 3);
+        // self.addInstruction(.SBC_ZPX, "SBC", .ZPX, &executeSBC, 4);
+        // self.addInstruction(.SBC_ABS, "SBC", .ABS, &executeSBC, 4);
+        // self.addInstruction(.SBC_ABX, "SBC", .ABX, &executeSBC, 4);
+        // self.addInstruction(.SBC_ABY, "SBC", .ABY, &executeSBC, 4);
+        // self.addInstruction(.SBC_IDX, "SBC", .IDX, &executeSBC, 6);
+        // self.addInstruction(.SBC_IDY, "SBC", .IDY, &executeSBC, 5);
     }
 
-    // ------------------------- LDA - Load accumulator -------------------------
+    // ------------------------- LDA - Load accumulator ----------------------------
     // Function:    A = M
     // Flags:       Z,N
 
@@ -465,7 +491,7 @@ pub const CPU = struct {
         return @intFromBool(addr_res.pageCrossed);
     }
 
-    // -------------------------- LDX - Load X register -------------------------
+    // -------------------------- LDX - Load X register ----------------------------
     // Function:    X = M
     // Flags:       Z,N
 
@@ -479,7 +505,7 @@ pub const CPU = struct {
         return @intFromBool(addr_res.pageCrossed);
     }
 
-    // -------------------------- LDY - Load Y register -------------------------
+    // -------------------------- LDY - Load Y register ----------------------------
     // Function:    Y = M
     // Flags:       Z,N
 
@@ -493,7 +519,7 @@ pub const CPU = struct {
         return @intFromBool(addr_res.pageCrossed);
     }
 
-    // ------------------------- STA - Store accumulator ------------------------
+    // ------------------------- STA - Store accumulator ---------------------------
     // Function:    M = A
     // Flags:       none
 
@@ -505,7 +531,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // ------------------------- STX - Store X register -------------------------
+    // ------------------------- STX - Store X register ----------------------------
     // Function:    M = X
     // Flags:       none
 
@@ -517,7 +543,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // ------------------------- STY - Store Y register -------------------------
+    // ------------------------- STY - Store Y register ----------------------------
     // Function:    M = Y
     // Flags:       none
 
@@ -529,7 +555,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // --------------------- TAX - Transfer accumulator to X --------------------
+    // --------------------- TAX - Transfer accumulator to X -----------------------
     // Function:    X = A
     // Flags:       Z,N
 
@@ -540,7 +566,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // --------------------- TAY - Transfer accumulator to Y --------------------
+    // --------------------- TAY - Transfer accumulator to Y -----------------------
     // Function:    Y = A
     // Flags:       Z,N
 
@@ -551,7 +577,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // --------------------- TXA - Transfer X to accumulator --------------------
+    // --------------------- TXA - Transfer X to accumulator -----------------------
     // Function:    A = X
     // Flags:       Z,N
 
@@ -562,7 +588,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // --------------------- TYA - Transfer Y to accumulator --------------------
+    // --------------------- TYA - Transfer Y to accumulator -----------------------
     // Function:    A = Y
     // Flags:       Z,N
 
@@ -573,7 +599,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // ------------------------- TSX - Transfer SP to X -------------------------
+    // ------------------------- TSX - Transfer SP to X ----------------------------
     // Function:    X = SP
     // Flags:       Z,N
 
@@ -584,7 +610,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // ------------------------- TXS - Transfer X to SP -------------------------
+    // ------------------------- TXS - Transfer X to SP ----------------------------
     // Function:    SP = X
     // Flags:       none
 
@@ -594,7 +620,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // -------------------- PHA - Push accumulator onto stack -------------------
+    // -------------------- PHA - Push accumulator onto stack ----------------------
     // Function:    *SP = A; SP--
     // Flags:       none
 
@@ -604,7 +630,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // ----------------- PHP - Push processor status onto stack -----------------
+    // ----------------- PHP - Push processor status onto stack --------------------
     // Function:    *SP = status; SP--
     // Flags:       none
 
@@ -614,7 +640,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // -------------------- PLA - Pull accumulator from stack -------------------
+    // -------------------- PLA - Pull accumulator from stack ----------------------
     // Function:    A = *SP; SP++
     // Flags:       Z,N
 
@@ -625,7 +651,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // ----------------- PLP - Pull processor status from stack -----------------
+    // ----------------- PLP - Pull processor status from stack --------------------
     // Function:    status = *SP; SP++
     // Flags:       all
 
@@ -635,7 +661,7 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // ---------------------------- AND - Logical AND ---------------------------
+    // ---------------------------- AND - Logical AND ------------------------------
     // Function:    A = A & M
     // Flags:       Z,N
 
@@ -649,7 +675,7 @@ pub const CPU = struct {
         return @intFromBool(addr_res.pageCrossed);
     }
 
-    // --------------------------- EOR - Exclusive OR ---------------------------
+    // --------------------------- EOR - Exclusive OR ------------------------------
     // Function:    A = A ^ M
     // Flags:       Z,N
 
@@ -663,7 +689,7 @@ pub const CPU = struct {
         return @intFromBool(addr_res.pageCrossed);
     }
 
-    // ---------------------------- ORA - Logical OR ----------------------------
+    // ---------------------------- ORA - Logical OR -------------------------------
     // Function:    A = A | M
     // Flags:       Z,N
 
@@ -677,7 +703,7 @@ pub const CPU = struct {
         return @intFromBool(addr_res.pageCrossed);
     }
 
-    // ----------------------------- BIT - Bit test -----------------------------
+    // ----------------------------- BIT - Bit test --------------------------------
     // Function:    Z = !!(A & M); N = M7; V = M6
     // Flags:       Z,V,N
 
@@ -692,16 +718,38 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
-    // ------------------------ ??? - Unknown instruction -----------------------
+    // -------------------------- ADC - Add with carry -----------------------------
+    // Function:    A = A + M + C
+    // Flags:       C,Z,V,N
+
+    fn executeADC(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+        const result_word: u16 = @as(u16, self.a) + @as(u16, value) + @intFromBool(self.getFlag(.C));
+        const result_byte: u8 = @intCast(result_word & 0x00FF);
+
+        const same_add_msb = (getBit(self.a, 7) ^ getBit(value, 7)) == 0;
+        const diff_acc_msb = getBit(result_byte, 7) != getBit(self.a, 7);
+
+        self.setFlag(.C, (result_word & 0xFF00) > 0);
+        self.setFlag(.Z, result_byte == 0x00);
+        self.setFlag(.V, same_add_msb and diff_acc_msb);
+        self.setFlag(.N, isBitSet(result_byte, 7));
+        self.a = result_byte;
+
+        return @intFromBool(addr_res.pageCrossed);
+    }
+
+    // ------------------------ ??? - Unknown instruction --------------------------
 
     fn unknownInstruction(_: *CPU, _:AddressingMode) u1 {
         std.debug.print("Unknown instruction\n", .{});
         return 0;
     }
 
-    // --------------------------------------------------------------------------
-    //                              HELPER FUNCTIONS                             
-    // --------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------
+    //                              HELPER FUNCTIONS                                
+    // -----------------------------------------------------------------------------
 
     fn decodeOpcode(byte: u8) ?Opcode {
         return std.meta.intToEnum(Opcode, byte) catch null;
