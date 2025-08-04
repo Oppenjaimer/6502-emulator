@@ -15,12 +15,18 @@ const START_HIGH: u8 = START_ADDR >> 8;
 const START_LOW:  u8 = START_ADDR & 0xFF;
 
 const LogicalOp = *const fn (u8, u8) u8;
-const ArithmeticOp = *const fn (u8, u8) u8;
+const ArithmeticOp = *const fn (u8, u8) u16;
 
 const LoadRegSetupFn = *const fn (*CPU, u8) u1;
 const StoreRegSetupFn = *const fn (*CPU) void;
 const LogicalOpSetupFn = *const fn (*CPU, u8) u1;
 const BitTestSetupFn = *const fn (*CPU, u8) void;
+const ArithmeticOpSetupFn = *const fn (*CPU, u8) u1;
+
+const ArithmeticOpParams = struct {
+    carry: bool, acc: u8, operand: u8, result: u8,
+    expected_c: bool, expected_z: bool, expected_v: bool, expected_n: bool,
+};
 
 const TestContext = struct {
     mem: Memory,
@@ -345,7 +351,7 @@ fn testStackPull(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-// --------------------------- Logical operations ------------------------------
+// ---------------------- Logical/Arithmetic operations ------------------------
 
 fn testLogicalOperation(cpu: *CPU, opcode: Opcode, op: LogicalOp, setup: LogicalOpSetupFn) !void {
     const cycles = getInstructionCycles(cpu, opcode);
@@ -363,20 +369,41 @@ fn testLogicalOperation(cpu: *CPU, opcode: Opcode, op: LogicalOp, setup: Logical
     try testing.expectEqual(cpu.cycles, 0);
 }
 
-fn setupLogicalOperationIMM(cpu: *CPU, value: u8) u1 {
+fn testArithmeticOperation(cpu: *CPU, opcode: Opcode, setup: ArithmeticOpSetupFn, params: ArithmeticOpParams) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    const extra_cycle = setup(cpu, params.operand);
+
+    cpu.setFlag(.C, params.carry);
+    cpu.setFlag(.Z, !params.expected_z);
+    cpu.setFlag(.V, !params.expected_v);
+    cpu.setFlag(.N, !params.expected_n);
+    cpu.a = params.acc;
+    cpu.run(cycles + extra_cycle);
+
+    try testing.expectEqual(cpu.getFlag(.C), params.expected_c);
+    try testing.expectEqual(cpu.getFlag(.Z), params.expected_z);
+    try testing.expectEqual(cpu.getFlag(.V), params.expected_v);
+    try testing.expectEqual(cpu.getFlag(.N), params.expected_n);
+    try testing.expectEqual(cpu.a, params.result);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn setupOperationIMM(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, value);
 
     return 0;
 }
 
-fn setupLogicalOperationZPG(cpu: *CPU, value: u8) u1 {
+fn setupOperationZPG(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0x11);
     cpu.writeByte(0x0011, value);
 
     return 0;
 }
 
-fn setupLogicalOperationZPXNoWrap(cpu: *CPU, value: u8) u1 {
+fn setupOperationZPXNoWrap(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0x11);
     cpu.writeByte(0x0012, value);
     cpu.x = 0x01;
@@ -384,7 +411,7 @@ fn setupLogicalOperationZPXNoWrap(cpu: *CPU, value: u8) u1 {
     return 0;
 }
 
-fn setupLogicalOperationZPXWrap(cpu: *CPU, value: u8) u1 {
+fn setupOperationZPXWrap(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0xFF);
     cpu.writeByte(0x0000, value);
     cpu.x = 0x01;
@@ -392,14 +419,14 @@ fn setupLogicalOperationZPXWrap(cpu: *CPU, value: u8) u1 {
     return 0;
 }
 
-fn setupLogicalOperationABS(cpu: *CPU, value: u8) u1 {
+fn setupOperationABS(cpu: *CPU, value: u8) u1 {
     cpu.writeWord(START_ADDR + 1, 0x1234);
     cpu.writeByte(0x1234, value);
 
     return 0;
 }
 
-fn setupLogicalOperationABXNoCross(cpu: *CPU, value: u8) u1 {
+fn setupOperationABXNoCross(cpu: *CPU, value: u8) u1 {
     cpu.writeWord(START_ADDR + 1, 0x1234);
     cpu.writeByte(0x1235, value);
     cpu.x = 0x01;
@@ -407,7 +434,7 @@ fn setupLogicalOperationABXNoCross(cpu: *CPU, value: u8) u1 {
     return 0;
 }
 
-fn setupLogicalOperationABXCross(cpu: *CPU, value: u8) u1 {
+fn setupOperationABXCross(cpu: *CPU, value: u8) u1 {
     cpu.writeWord(START_ADDR + 1, 0x10FF);
     cpu.writeByte(0x1100, value);
     cpu.x = 0x01;
@@ -415,7 +442,7 @@ fn setupLogicalOperationABXCross(cpu: *CPU, value: u8) u1 {
     return 1;
 }
 
-fn setupLogicalOperationABYNoCross(cpu: *CPU, value: u8) u1 {
+fn setupOperationABYNoCross(cpu: *CPU, value: u8) u1 {
     cpu.writeWord(START_ADDR + 1, 0x1234);
     cpu.writeByte(0x1235, value);
     cpu.y = 0x01;
@@ -423,7 +450,7 @@ fn setupLogicalOperationABYNoCross(cpu: *CPU, value: u8) u1 {
     return 0;
 }
 
-fn setupLogicalOperationABYCross(cpu: *CPU, value: u8) u1 {
+fn setupOperationABYCross(cpu: *CPU, value: u8) u1 {
     cpu.writeWord(START_ADDR + 1, 0x10FF);
     cpu.writeByte(0x1100, value);
     cpu.y = 0x01;
@@ -431,7 +458,7 @@ fn setupLogicalOperationABYCross(cpu: *CPU, value: u8) u1 {
     return 1;
 }
 
-fn setupLogicalOperationIDXNoWrap(cpu: *CPU, value: u8) u1 {
+fn setupOperationIDXNoWrap(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0x11);
     cpu.writeWord(0x0012, 0x1234);
     cpu.writeByte(0x1234, value);
@@ -440,7 +467,7 @@ fn setupLogicalOperationIDXNoWrap(cpu: *CPU, value: u8) u1 {
     return 0;
 }
 
-fn setupLogicalOperationIDXWrap(cpu: *CPU, value: u8) u1 {
+fn setupOperationIDXWrap(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0xFF);
     cpu.writeWord(0x0000, 0x1234);
     cpu.writeByte(0x1234, value);
@@ -449,7 +476,7 @@ fn setupLogicalOperationIDXWrap(cpu: *CPU, value: u8) u1 {
     return 0;
 }
 
-fn setupLogicalOperationIDYNoCross(cpu: *CPU, value: u8) u1 {
+fn setupOperationIDYNoCross(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0x11);
     cpu.writeWord(0x0011, 0x1234);
     cpu.writeByte(0x1235, value);
@@ -458,7 +485,7 @@ fn setupLogicalOperationIDYNoCross(cpu: *CPU, value: u8) u1 {
     return 0;
 }
 
-fn setupLogicalOperationIDYCross(cpu: *CPU, value: u8) u1 {
+fn setupOperationIDYCross(cpu: *CPU, value: u8) u1 {
     cpu.writeByte(START_ADDR + 1, 0x11);
     cpu.writeWord(0x0011, 0x10FF);
     cpu.writeByte(0x1100, value);
@@ -494,117 +521,6 @@ fn setupBitTestZPG(cpu: *CPU, value: u8) void {
 fn setupBitTestABS(cpu: *CPU, value: u8) void {
     cpu.writeWord(START_ADDR + 1, 0x1234);
     cpu.writeByte(0x1234, value);
-}
-
-// -------------------------- Arithmetic operations ----------------------------
-
-fn testArithmeticOperationFlags(cpu: *CPU, opcode: Opcode) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x00); // Assume immediate mode
-
-    cpu.setFlag(.C, false);
-    cpu.a = 0x00;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.C), false);
-    try testing.expectEqual(cpu.getFlag(.Z), true);
-    try testing.expectEqual(cpu.getFlag(.V), false);
-    try testing.expectEqual(cpu.getFlag(.N), false);
-
-    cpu.writeByte(START_ADDR + 2, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 3, 0x00); // Assume immediate mode
-
-    cpu.setFlag(.C, true);
-    cpu.a = 0x00;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.C), false);
-    try testing.expectEqual(cpu.getFlag(.Z), false);
-    try testing.expectEqual(cpu.getFlag(.V), false);
-    try testing.expectEqual(cpu.getFlag(.N), false);
-
-    cpu.writeByte(START_ADDR + 4, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 5, 0xFF); // Assume immediate mode
-
-    cpu.setFlag(.C, false);
-    cpu.a = 0x01;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.C), true);
-    try testing.expectEqual(cpu.getFlag(.Z), true);
-    try testing.expectEqual(cpu.getFlag(.V), false);
-    try testing.expectEqual(cpu.getFlag(.N), false);
-
-    cpu.writeByte(START_ADDR + 6, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 7, 0xF0); // Assume immediate mode
-
-    cpu.setFlag(.C, false);
-    cpu.a = 0xF2;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.C), true);
-    try testing.expectEqual(cpu.getFlag(.Z), false);
-    try testing.expectEqual(cpu.getFlag(.V), false);
-    try testing.expectEqual(cpu.getFlag(.N), true);
-
-    cpu.writeByte(START_ADDR + 8, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 9, 0x00); // Assume immediate mode
-
-    cpu.setFlag(.C, true);
-    cpu.a = 0x7F;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.getFlag(.C), false);
-    try testing.expectEqual(cpu.getFlag(.Z), false);
-    try testing.expectEqual(cpu.getFlag(.V), true);
-    try testing.expectEqual(cpu.getFlag(.N), true);
-}
-
-fn testArithmeticOperationIMM(cpu: *CPU, opcode: Opcode) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x32);
-
-    cpu.setFlag(.C, true);
-    cpu.a = 0x05;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, 0x38);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testArithmeticOperationZPG(cpu: *CPU, opcode: Opcode) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x66);
-    cpu.writeByte(0x0066, 0x32);
-
-    cpu.setFlag(.C, true);
-    cpu.a = 0x05;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, 0x38);
-    try testing.expectEqual(cpu.cycles, 0);
-}
-
-fn testArithmeticOperationZPX(cpu: *CPU, opcode: Opcode) !void {
-    const cycles = getInstructionCycles(cpu, opcode);
-
-    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
-    cpu.writeByte(START_ADDR + 1, 0x66);
-    cpu.writeByte(0x0066, 0x32);
-
-    cpu.setFlag(.C, true);
-    cpu.x = 0x01;
-    cpu.a = 0x05;
-    cpu.run(cycles);
-
-    try testing.expectEqual(cpu.a, 0x38);
-    try testing.expectEqual(cpu.cycles, 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -930,201 +846,201 @@ test "PLP IMP" {
 
 test "AND IMM" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_IMM, &logicalAND, &setupLogicalOperationIMM);
+    try testLogicalOperation(&ctx.cpu, .AND_IMM, &logicalAND, &setupOperationIMM);
 }
 
 test "AND ZPG" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_ZPG, &logicalAND, &setupLogicalOperationZPG);
+    try testLogicalOperation(&ctx.cpu, .AND_ZPG, &logicalAND, &setupOperationZPG);
 }
 
 test "AND ZPX without wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_ZPX, &logicalAND, &setupLogicalOperationZPXNoWrap);
+    try testLogicalOperation(&ctx.cpu, .AND_ZPX, &logicalAND, &setupOperationZPXNoWrap);
 }
 
 test "AND ZPX with wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_ZPX, &logicalAND, &setupLogicalOperationZPXWrap);
+    try testLogicalOperation(&ctx.cpu, .AND_ZPX, &logicalAND, &setupOperationZPXWrap);
 }
 
 test "AND ABS" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_ABS, &logicalAND, &setupLogicalOperationABS);
+    try testLogicalOperation(&ctx.cpu, .AND_ABS, &logicalAND, &setupOperationABS);
 }
 
 test "AND ABX without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_ABX, &logicalAND, &setupLogicalOperationABXNoCross);
+    try testLogicalOperation(&ctx.cpu, .AND_ABX, &logicalAND, &setupOperationABXNoCross);
 }
 
 test "AND ABX with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_ABX, &logicalAND, &setupLogicalOperationABXCross);
+    try testLogicalOperation(&ctx.cpu, .AND_ABX, &logicalAND, &setupOperationABXCross);
 }
 
 test "AND ABY without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_ABY, &logicalAND, &setupLogicalOperationABYNoCross);
+    try testLogicalOperation(&ctx.cpu, .AND_ABY, &logicalAND, &setupOperationABYNoCross);
 }
 
 test "AND ABY with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_ABY, &logicalAND, &setupLogicalOperationABYCross);
+    try testLogicalOperation(&ctx.cpu, .AND_ABY, &logicalAND, &setupOperationABYCross);
 }
 
 test "AND IDX without wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_IDX, &logicalAND, &setupLogicalOperationIDXNoWrap);
+    try testLogicalOperation(&ctx.cpu, .AND_IDX, &logicalAND, &setupOperationIDXNoWrap);
 }
 
 test "AND IDX with wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_IDX, &logicalAND, &setupLogicalOperationIDXWrap);
+    try testLogicalOperation(&ctx.cpu, .AND_IDX, &logicalAND, &setupOperationIDXWrap);
 }
 
 test "AND IDY without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_IDY, &logicalAND, &setupLogicalOperationIDYNoCross);
+    try testLogicalOperation(&ctx.cpu, .AND_IDY, &logicalAND, &setupOperationIDYNoCross);
 }
 
 test "AND IDY with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .AND_IDY, &logicalAND, &setupLogicalOperationIDYCross);
+    try testLogicalOperation(&ctx.cpu, .AND_IDY, &logicalAND, &setupOperationIDYCross);
 }
 
 // --------------------------- EOR - Exclusive OR ------------------------------
 
 test "EOR IMM" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_IMM, &logicalXOR, &setupLogicalOperationIMM);
+    try testLogicalOperation(&ctx.cpu, .EOR_IMM, &logicalXOR, &setupOperationIMM);
 }
 
 test "EOR ZPG" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_ZPG, &logicalXOR, &setupLogicalOperationZPG);
+    try testLogicalOperation(&ctx.cpu, .EOR_ZPG, &logicalXOR, &setupOperationZPG);
 }
 
 test "EOR ZPX without wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_ZPX, &logicalXOR, &setupLogicalOperationZPXNoWrap);
+    try testLogicalOperation(&ctx.cpu, .EOR_ZPX, &logicalXOR, &setupOperationZPXNoWrap);
 }
 
 test "EOR ZPX with wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_ZPX, &logicalXOR, &setupLogicalOperationZPXWrap);
+    try testLogicalOperation(&ctx.cpu, .EOR_ZPX, &logicalXOR, &setupOperationZPXWrap);
 }
 
 test "EOR ABS" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_ABS, &logicalXOR, &setupLogicalOperationABS);
+    try testLogicalOperation(&ctx.cpu, .EOR_ABS, &logicalXOR, &setupOperationABS);
 }
 
 test "EOR ABX without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_ABX, &logicalXOR, &setupLogicalOperationABXNoCross);
+    try testLogicalOperation(&ctx.cpu, .EOR_ABX, &logicalXOR, &setupOperationABXNoCross);
 }
 
 test "EOR ABX with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_ABX, &logicalXOR, &setupLogicalOperationABXCross);
+    try testLogicalOperation(&ctx.cpu, .EOR_ABX, &logicalXOR, &setupOperationABXCross);
 }
 
 test "EOR ABY without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_ABY, &logicalXOR, &setupLogicalOperationABYNoCross);
+    try testLogicalOperation(&ctx.cpu, .EOR_ABY, &logicalXOR, &setupOperationABYNoCross);
 }
 
 test "EOR ABY with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_ABY, &logicalXOR, &setupLogicalOperationABYCross);
+    try testLogicalOperation(&ctx.cpu, .EOR_ABY, &logicalXOR, &setupOperationABYCross);
 }
 
 test "EOR IDX without wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_IDX, &logicalXOR, &setupLogicalOperationIDXNoWrap);
+    try testLogicalOperation(&ctx.cpu, .EOR_IDX, &logicalXOR, &setupOperationIDXNoWrap);
 }
 
 test "EOR IDX with wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_IDX, &logicalXOR, &setupLogicalOperationIDXWrap);
+    try testLogicalOperation(&ctx.cpu, .EOR_IDX, &logicalXOR, &setupOperationIDXWrap);
 }
 
 test "EOR IDY without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_IDY, &logicalXOR, &setupLogicalOperationIDYNoCross);
+    try testLogicalOperation(&ctx.cpu, .EOR_IDY, &logicalXOR, &setupOperationIDYNoCross);
 }
 
 test "EOR IDY with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .EOR_IDY, &logicalXOR, &setupLogicalOperationIDYCross);
+    try testLogicalOperation(&ctx.cpu, .EOR_IDY, &logicalXOR, &setupOperationIDYCross);
 }
 
 // ---------------------------- ORA - Logical OR -------------------------------
 
 test "ORA IMM" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_IMM, &logicalOR, &setupLogicalOperationIMM);
+    try testLogicalOperation(&ctx.cpu, .ORA_IMM, &logicalOR, &setupOperationIMM);
 }
 
 test "ORA ZPG" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_ZPG, &logicalOR, &setupLogicalOperationZPG);
+    try testLogicalOperation(&ctx.cpu, .ORA_ZPG, &logicalOR, &setupOperationZPG);
 }
 
 test "ORA ZPX without wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_ZPX, &logicalOR, &setupLogicalOperationZPXNoWrap);
+    try testLogicalOperation(&ctx.cpu, .ORA_ZPX, &logicalOR, &setupOperationZPXNoWrap);
 }
 
 test "ORA ZPX with wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_ZPX, &logicalOR, &setupLogicalOperationZPXWrap);
+    try testLogicalOperation(&ctx.cpu, .ORA_ZPX, &logicalOR, &setupOperationZPXWrap);
 }
 
 test "ORA ABS" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_ABS, &logicalOR, &setupLogicalOperationABS);
+    try testLogicalOperation(&ctx.cpu, .ORA_ABS, &logicalOR, &setupOperationABS);
 }
 
 test "ORA ABX without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_ABX, &logicalOR, &setupLogicalOperationABXNoCross);
+    try testLogicalOperation(&ctx.cpu, .ORA_ABX, &logicalOR, &setupOperationABXNoCross);
 }
 
 test "ORA ABX with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_ABX, &logicalOR, &setupLogicalOperationABXCross);
+    try testLogicalOperation(&ctx.cpu, .ORA_ABX, &logicalOR, &setupOperationABXCross);
 }
 
 test "ORA ABY without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_ABY, &logicalOR, &setupLogicalOperationABYNoCross);
+    try testLogicalOperation(&ctx.cpu, .ORA_ABY, &logicalOR, &setupOperationABYNoCross);
 }
 
 test "ORA ABY with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_ABY, &logicalOR, &setupLogicalOperationABYCross);
+    try testLogicalOperation(&ctx.cpu, .ORA_ABY, &logicalOR, &setupOperationABYCross);
 }
 
 test "ORA IDX without wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_IDX, &logicalOR, &setupLogicalOperationIDXNoWrap);
+    try testLogicalOperation(&ctx.cpu, .ORA_IDX, &logicalOR, &setupOperationIDXNoWrap);
 }
 
 test "ORA IDX with wrap around" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_IDX, &logicalOR, &setupLogicalOperationIDXWrap);
+    try testLogicalOperation(&ctx.cpu, .ORA_IDX, &logicalOR, &setupOperationIDXWrap);
 }
 
 test "ORA IDY without page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_IDY, &logicalOR, &setupLogicalOperationIDYNoCross);
+    try testLogicalOperation(&ctx.cpu, .ORA_IDY, &logicalOR, &setupOperationIDYNoCross);
 }
 
 test "ORA IDY with page crossing" {
     var ctx = TestContext.init();
-    try testLogicalOperation(&ctx.cpu, .ORA_IDY, &logicalOR, &setupLogicalOperationIDYCross);
+    try testLogicalOperation(&ctx.cpu, .ORA_IDY, &logicalOR, &setupOperationIDYCross);
 }
 
 // ----------------------------- BIT - Bit test --------------------------------
@@ -1137,4 +1053,372 @@ test "BIT ZPG" {
 test "BIT ABS" {
     var ctx = TestContext.init();
     try testBitTest(&ctx.cpu, .BIT_ABS, &setupBitTestABS);
+}
+
+// -------------------------- ADC - Add with carry -----------------------------
+
+test "ADC IMM" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_IMM, &setupOperationIMM, .{
+        .carry = false,
+        .acc = 0x00,
+        .operand = 0x00,
+        .result = 0x00,
+        .expected_c = false,
+        .expected_z = true,
+        .expected_v = false,
+        .expected_n = false,
+    }); // 0 + 0 + 0 = 0
+}
+
+test "ADC ZPG" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_ZPG, &setupOperationZPG, .{
+        .carry = true,
+        .acc = 0x00,
+        .operand = 0x00,
+        .result = 0x01,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = false,
+    }); // 1 + 0 + 0 = 1
+}
+
+test "ADC ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_ZPX, &setupOperationZPXNoWrap, .{
+        .carry = false,
+        .acc = 0x50,
+        .operand = 0x30,
+        .result = 0x80,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = true,
+    }); // 0 + 80 + 48 = -128
+}
+
+test "ADC ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_ZPX, &setupOperationZPXWrap, .{
+        .carry = true,
+        .acc = 0x50,
+        .operand = 0x30,
+        .result = 0x81,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = true,
+    }); // 1 + 80 + 48 = -127
+}
+
+test "ADC ABS" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_ABS, &setupOperationABS, .{
+        .carry = false,
+        .acc = 0xFF,
+        .operand = 0x01,
+        .result = 0x00,
+        .expected_c = true,
+        .expected_z = true,
+        .expected_v = false,
+        .expected_n = false,
+    }); // 0 + (-1) + 1 = 0
+}
+
+test "ADC ABX without page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_ABX, &setupOperationABXNoCross, .{
+        .carry = true,
+        .acc = 0xF0,
+        .operand = 0xF2,
+        .result = 0xE3,
+        .expected_c = true,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = true,
+    }); // 1 + (-16) + (-14) = -29
+}
+
+test "ADC ABX with page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_ABX, &setupOperationABXCross, .{
+        .carry = false,
+        .acc = 0xF0,
+        .operand = 0xF2,
+        .result = 0xE2,
+        .expected_c = true,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = true,
+    }); // 0 + (-16) + (-14) = -30
+}
+
+test "ADC ABY without page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_ABY, &setupOperationABYNoCross, .{
+        .carry = false,
+        .acc = 0x01,
+        .operand = 0x7F,
+        .result = 0x80,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = true,
+    }); // 0 + 1 + 127 = -128
+}
+
+test "ADC ABY with page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_ABY, &setupOperationABYCross, .{
+        .carry = true,
+        .acc = 0x01,
+        .operand = 0x7F,
+        .result = 0x81,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = true,
+    }); // 1 + 1 + 127 = -127
+}
+
+test "ADC IDX without wrap around" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_IDX, &setupOperationIDXNoWrap, .{
+        .carry = false,
+        .acc = 0x64,
+        .operand = 0x64,
+        .result = 0xC8,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = true,
+    }); // 0 + 100 + 100 = -56
+}
+
+test "ADC IDX with wrap around" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_IDX, &setupOperationIDXWrap, .{
+        .carry = true,
+        .acc = 0x64,
+        .operand = 0x64,
+        .result = 0xC9,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = true,
+    }); // 1 + 100 + 100 = -55
+}
+
+test "ADC IDY without page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_IDY, &setupOperationIDYNoCross, .{
+        .carry = false,
+        .acc = 0xA1,
+        .operand = 0x90,
+        .result = 0x31,
+        .expected_c = true,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = false,
+    }); // 0 + (-95) + (-110) = 31
+}
+
+test "ADC IDY with page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .ADC_IDY, &setupOperationIDYCross, .{
+        .carry = true,
+        .acc = 0xA1,
+        .operand = 0x90,
+        .result = 0x32,
+        .expected_c = true,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = false,
+    }); // 1 + (-95) + (-110) = 32
+}
+
+// ------------------------ SBC - Subtract with carry --------------------------
+
+test "SBC IMM" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_IMM, &setupOperationIMM, .{
+        .carry = true,
+        .acc = 0x00,
+        .operand = 0x00,
+        .result = 0x00,
+        .expected_c = true,
+        .expected_z = true,
+        .expected_v = false,
+        .expected_n = false,
+    }); // 0 - 0 - (1 - 1) = 0
+}
+
+test "SBC ZPG" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_ZPG, &setupOperationZPG, .{
+        .carry = true,
+        .acc = 0x01,
+        .operand = 0x00,
+        .result = 0x01,
+        .expected_c = true,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = false,
+    }); // 1 - 0 - (1 - 1) = 1
+}
+
+test "SBC ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_ZPX, &setupOperationZPXNoWrap, .{
+        .carry = true,
+        .acc = 0x00,
+        .operand = 0x01,
+        .result = 0xFF,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = true,
+    }); // 0 - 1 - (1 - 1) = -1
+}
+
+test "SBC ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_ZPX, &setupOperationZPXWrap, .{
+        .carry = false,
+        .acc = 0x00,
+        .operand = 0x01,
+        .result = 0xFE,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = true,
+    }); // 0 - 1 - (1 - 0) = -2
+}
+
+test "SBC ABS" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_ABS, &setupOperationABS, .{
+        .carry = true,
+        .acc = 0x01,
+        .operand = 0x01,
+        .result = 0x00,
+        .expected_c = true,
+        .expected_z = true,
+        .expected_v = false,
+        .expected_n = false,
+    }); // 1 - 1 - (1 - 1) = 0
+}
+
+test "SBC ABX without page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_ABX, &setupOperationABXNoCross, .{
+        .carry = true,
+        .acc = 0xF0,
+        .operand = 0xF2,
+        .result = 0xFE,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = true,
+    }); // -16 - (-14) - (1 - 1) = -2
+}
+
+test "SBC ABX with page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_ABX, &setupOperationABXCross, .{
+        .carry = false,
+        .acc = 0xF0,
+        .operand = 0xF2,
+        .result = 0xFD,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = true,
+    }); // -16 - (-14) - (1 - 0) = -3
+}
+
+test "SBC ABY without page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_ABY, &setupOperationABYNoCross, .{
+        .carry = true,
+        .acc = 0x80,
+        .operand = 0x01,
+        .result = 0x7F,
+        .expected_c = true,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = false,
+    }); // -128 - 1 - (1 - 1) = 127
+}
+
+test "SBC ABY with page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_ABY, &setupOperationABYCross, .{
+        .carry = false,
+        .acc = 0x80,
+        .operand = 0x01,
+        .result = 0x7E,
+        .expected_c = true,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = false,
+    }); // -128 - 1 - (1 - 0) = 126
+}
+
+test "SBC IDX without wrap around" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_IDX, &setupOperationIDXNoWrap, .{
+        .carry = true,
+        .acc = 0x7F,
+        .operand = 0xFF,
+        .result = 0x80,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = true,
+        .expected_n = true,
+    }); // 127 - (-1) - (1 - 1) = -128
+}
+
+test "SBC IDX with wrap around" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_IDX, &setupOperationIDXWrap, .{
+        .carry = false,
+        .acc = 0x7F,
+        .operand = 0xFF,
+        .result = 0x7F,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = false,
+    }); // 127 - (-1) - (1 - 0) = 127
+}
+
+test "SBC IDY without page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_IDY, &setupOperationIDYNoCross, .{
+        .carry = false,
+        .acc = 0x00,
+        .operand = 0x00,
+        .result = 0xFF,
+        .expected_c = false,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = true,
+    }); // 0 - 0 - (1 - 0) = -1
+}
+
+test "SBC IDY with page crossing" {
+    var ctx = TestContext.init();
+    try testArithmeticOperation(&ctx.cpu, .SBC_IDY, &setupOperationIDYCross, .{
+        .carry = true,
+        .acc = 0x14,
+        .operand = 0x11,
+        .result = 0x03,
+        .expected_c = true,
+        .expected_z = false,
+        .expected_v = false,
+        .expected_n = false,
+    }); // 20 - 17 - (1 - 1) = 3
 }

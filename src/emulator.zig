@@ -467,14 +467,14 @@ pub const CPU = struct {
         self.addInstruction(.ADC_IDX, "ADC", .IDX, &executeADC, 6);
         self.addInstruction(.ADC_IDY, "ADC", .IDY, &executeADC, 5);
 
-        // self.addInstruction(.SBC_IMM, "SBC", .IMM, &executeSBC, 2);
-        // self.addInstruction(.SBC_ZPG, "SBC", .ZPG, &executeSBC, 3);
-        // self.addInstruction(.SBC_ZPX, "SBC", .ZPX, &executeSBC, 4);
-        // self.addInstruction(.SBC_ABS, "SBC", .ABS, &executeSBC, 4);
-        // self.addInstruction(.SBC_ABX, "SBC", .ABX, &executeSBC, 4);
-        // self.addInstruction(.SBC_ABY, "SBC", .ABY, &executeSBC, 4);
-        // self.addInstruction(.SBC_IDX, "SBC", .IDX, &executeSBC, 6);
-        // self.addInstruction(.SBC_IDY, "SBC", .IDY, &executeSBC, 5);
+        self.addInstruction(.SBC_IMM, "SBC", .IMM, &executeSBC, 2);
+        self.addInstruction(.SBC_ZPG, "SBC", .ZPG, &executeSBC, 3);
+        self.addInstruction(.SBC_ZPX, "SBC", .ZPX, &executeSBC, 4);
+        self.addInstruction(.SBC_ABS, "SBC", .ABS, &executeSBC, 4);
+        self.addInstruction(.SBC_ABX, "SBC", .ABX, &executeSBC, 4);
+        self.addInstruction(.SBC_ABY, "SBC", .ABY, &executeSBC, 4);
+        self.addInstruction(.SBC_IDX, "SBC", .IDX, &executeSBC, 6);
+        self.addInstruction(.SBC_IDY, "SBC", .IDY, &executeSBC, 5);
     }
 
     // ------------------------- LDA - Load accumulator ----------------------------
@@ -731,10 +731,30 @@ pub const CPU = struct {
         const same_add_msb = (getBit(self.a, 7) ^ getBit(value, 7)) == 0;
         const diff_acc_msb = getBit(result_byte, 7) != getBit(self.a, 7);
 
+        self.setFlagsZN(result_byte);
         self.setFlag(.C, (result_word & 0xFF00) > 0);
-        self.setFlag(.Z, result_byte == 0x00);
         self.setFlag(.V, same_add_msb and diff_acc_msb);
-        self.setFlag(.N, isBitSet(result_byte, 7));
+        self.a = result_byte;
+
+        return @intFromBool(addr_res.pageCrossed);
+    }
+
+    // ------------------------ SBC - Subtract with carry --------------------------
+    // Function:    A = A - M - (1 - C)
+    // Flags:       C,Z,V,N
+
+    fn executeSBC(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+        const result_word: u16 = @as(u16, self.a) + @as(u16, ~value) + @intFromBool(self.getFlag(.C));
+        const result_byte: u8 = @intCast(result_word & 0x00FF);
+
+        const same_add_msb = (getBit(self.a, 7) ^ getBit(~value, 7)) == 0;
+        const diff_acc_msb = getBit(result_byte, 7) != getBit(self.a, 7);
+
+        self.setFlagsZN(result_byte);
+        self.setFlag(.C, (result_word & 0xFF00) > 0);
+        self.setFlag(.V, same_add_msb and diff_acc_msb);
         self.a = result_byte;
 
         return @intFromBool(addr_res.pageCrossed);
@@ -755,7 +775,7 @@ pub const CPU = struct {
         return std.meta.intToEnum(Opcode, byte) catch null;
     }
 
-    fn getBit(byte: u8, bit: u3) u1 {
+    pub fn getBit(byte: u8, bit: u3) u1 {
         return @intCast((byte >> bit) & 0b1);
     }
 
