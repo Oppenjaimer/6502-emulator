@@ -16,6 +16,7 @@ const START_LOW:  u8 = START_ADDR & 0xFF;
 
 const LogicalOp = *const fn (u8, u8) u8;
 const ArithmeticOp = *const fn (u8, u8) u16;
+const IncDecOp = *const fn (u8) u8;
 
 const ValueSetupFn = *const fn (*CPU, u8) u1;
 const NoValueSetupFn = *const fn (*CPU) void;
@@ -77,6 +78,16 @@ fn logicalOR(a: u8, b: u8) u8 {
 
 fn logicalXOR(a: u8, b: u8) u8 {
     return a ^ b;
+}
+
+// --------------------- Increment/Decrement operations ------------------------
+
+fn increment(n: u8) u8 {
+    return n +% 1;
+}
+
+fn decrement(n: u8) u8 {
+    return n -% 1;
 }
 
 // ------------------------------ Miscellaneous --------------------------------
@@ -432,6 +443,43 @@ fn testCompareRegister(cpu: *CPU, opcode: Opcode, register: *u8, setup: ValueSet
     try testing.expectEqual(cpu.getFlag(.N), true);
     try testing.expectEqual(cpu.cycles, 0);
 }
+
+// -------------------------- Increments/Decrements ----------------------------
+
+fn testIncrementDecrement(cpu: *CPU, opcode: Opcode, op: IncDecOp, setup: NoValueSetupFn) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+    const result = op(0x81);
+    
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    cpu.writeByte(0x0011, 0x81);
+    setup(cpu);
+
+    cpu.setFlag(.Z, true);
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+    try testing.expectEqual(cpu.readByte(0x0011), result);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testIncrementDecrementRegister(cpu: *CPU, opcode: Opcode, op: IncDecOp, register: *u8) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+    const result = op(0x81);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+
+    cpu.setFlag(.Z, true);
+    register.* = 0x81;
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+    try testing.expectEqual(register.*, result);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+
 
 // -----------------------------------------------------------------------------
 //                               CPU CORE TESTS                                 
@@ -1432,4 +1480,86 @@ test "CPY ZPG" {
 test "CPY ABS" {
     var ctx = TestContext.init();
     try testCompareRegister(&ctx.cpu, .CPY_ABS, &ctx.cpu.y, &setupValueABS);
+}
+
+// ------------------------- INC - Increment memory ----------------------------
+
+test "INC ZPG" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .INC_ZPG, &increment, &setupNoValueZPG);
+}
+
+test "INC ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .INC_ZPX, &increment, &setupNoValueZPXNoWrap);
+}
+
+test "INC ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .INC_ZPX, &increment, &setupNoValueZPXWrap);
+}
+
+test "INC ABS" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .INC_ABS, &increment, &setupNoValueABS);
+}
+
+test "INC ABX" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .INC_ABX, &increment, &setupNoValueABX);
+}
+
+// ----------------------- INX - Increment X register --------------------------
+
+test "INX IMP" {
+    var ctx = TestContext.init();
+    try testIncrementDecrementRegister(&ctx.cpu, .INX_IMP, &increment, &ctx.cpu.x);
+}
+
+// ----------------------- INY - Increment Y register --------------------------
+
+test "INY IMP" {
+    var ctx = TestContext.init();
+    try testIncrementDecrementRegister(&ctx.cpu, .INY_IMP, &increment, &ctx.cpu.y);
+}
+
+// ------------------------- DEC - Decrement memory ----------------------------
+
+test "DEC ZPG" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .DEC_ZPG, &decrement, &setupNoValueZPG);
+}
+
+test "DEC ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .DEC_ZPX, &decrement, &setupNoValueZPXNoWrap);
+}
+
+test "DEC ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .DEC_ZPX, &decrement, &setupNoValueZPXWrap);
+}
+
+test "DEC ABS" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .DEC_ABS, &decrement, &setupNoValueABS);
+}
+
+test "DEC ABX" {
+    var ctx = TestContext.init();
+    try testIncrementDecrement(&ctx.cpu, .DEC_ABX, &decrement, &setupNoValueABX);
+}
+
+// ----------------------- DEX - Decrement X register --------------------------
+
+test "DEX IMP" {
+    var ctx = TestContext.init();
+    try testIncrementDecrementRegister(&ctx.cpu, .DEX_IMP, &decrement, &ctx.cpu.x);
+}
+
+// ----------------------- DEY - Decrement Y register --------------------------
+
+test "DEY IMP" {
+    var ctx = TestContext.init();
+    try testIncrementDecrementRegister(&ctx.cpu, .DEY_IMP, &decrement, &ctx.cpu.y);
 }

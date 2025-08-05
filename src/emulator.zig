@@ -126,6 +126,24 @@ pub const CPU = struct {
 
         // CPY - Compare Y register
         CPY_IMM = 0xC0, CPY_ZPG = 0xC4, CPY_ABS = 0xCC,
+
+        // INC - Increment memory
+        INC_ZPG = 0xE6, INC_ZPX = 0xF6, INC_ABS = 0xEE, INC_ABX = 0xFE,
+
+        // INX - Increment X register
+        INX_IMP = 0xE8,
+
+        // INY - Increment Y register
+        INY_IMP = 0xC8,
+
+        // DEC - Decrement memory
+        DEC_ZPG = 0xC6, DEC_ZPX = 0xD6, DEC_ABS = 0xCE, DEC_ABX = 0xDE,
+
+        // DEX - Decrement X register
+        DEX_IMP = 0xCA,
+
+        // DEY - Decrement Y register
+        DEY_IMP = 0x88,
     };
 
     pub const AddressingMode = enum {
@@ -508,6 +526,22 @@ pub const CPU = struct {
         self.addInstruction(.CPY_IMM, "CPY", .IMM, &executeCPY, 2);
         self.addInstruction(.CPY_ZPG, "CPY", .ZPG, &executeCPY, 3);
         self.addInstruction(.CPY_ABS, "CPY", .ABS, &executeCPY, 4);
+
+        self.addInstruction(.INC_ZPG, "INC", .ZPG, &executeINC, 5);
+        self.addInstruction(.INC_ZPX, "INC", .ZPX, &executeINC, 6);
+        self.addInstruction(.INC_ABS, "INC", .ABS, &executeINC, 6);
+        self.addInstruction(.INC_ABX, "INC", .ABX, &executeINC, 7);
+
+        self.addInstruction(.INX_IMP, "INX", .IMP, &executeINX, 2);
+        self.addInstruction(.INY_IMP, "INY", .IMP, &executeINY, 2);
+
+        self.addInstruction(.DEC_ZPG, "DEC", .ZPG, &executeDEC, 5);
+        self.addInstruction(.DEC_ZPX, "DEC", .ZPX, &executeDEC, 6);
+        self.addInstruction(.DEC_ABS, "DEC", .ABS, &executeDEC, 6);
+        self.addInstruction(.DEC_ABX, "DEC", .ABX, &executeDEC, 7);
+
+        self.addInstruction(.DEX_IMP, "DEX", .IMP, &executeDEX, 2);
+        self.addInstruction(.DEY_IMP, "DEY", .IMP, &executeDEY, 2);
     }
 
     // ------------------------- LDA - Load accumulator ----------------------------
@@ -832,6 +866,88 @@ pub const CPU = struct {
         
         self.setFlagsCZN(result);
 
+        return 0; // No extra cycles
+    }
+
+    // ------------------------- INC - Increment memory ----------------------------
+    // Function:    M++
+    // Flags:       Z,N
+
+    fn executeINC(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+        const result = value +% 1;
+
+        self.writeByte(addr_res.addr, result);
+        self.setFlagsZN(result);
+
+        return 0; // No extra cycles
+    }
+
+    // ----------------------- INX - Increment X register --------------------------
+    // Function:    X++
+    // Flags:       Z,N
+
+    fn executeINX(self: *CPU, _: AddressingMode) u1 {
+        const result = self.x +% 1;
+
+        self.x = result;
+        self.setFlagsZN(result);
+        
+        return 0; // No extra cycles
+    }
+
+    // ----------------------- INY - Increment Y register --------------------------
+    // Function:    Y++
+    // Flags:       Z,N
+
+    fn executeINY(self: *CPU, _: AddressingMode) u1 {
+        const result = self.y +% 1;
+
+        self.y = result;
+        self.setFlagsZN(result);
+        
+        return 0; // No extra cycles
+    }
+
+    // ------------------------- DEC - Decrement memory ----------------------------
+    // Function:    M--
+    // Flags:       Z,N
+
+    fn executeDEC(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+        const result = value -% 1;
+
+        self.writeByte(addr_res.addr, result);
+        self.setFlagsZN(result);
+
+        return 0; // No extra cycles
+    }
+
+    // ----------------------- DEX - Decrement X register --------------------------
+    // Function:    X--
+    // Flags:       Z,N
+
+    fn executeDEX(self: *CPU, _: AddressingMode) u1 {
+        const result = self.x -% 1;
+
+        self.x = result;
+        self.setFlagsZN(result);
+        
+        return 0; // No extra cycles
+    }
+
+    // ----------------------- DEY - Decrement Y register --------------------------
+    // Function:    Y--
+    // Flags:       Z,N
+
+    fn executeDEY(self: *CPU, _: AddressingMode) u1 {
+        const result = self.y -% 1;
+
+        self.y = result;
+        self.setFlagsZN(result);
+        
         return 0; // No extra cycles
     }
 
