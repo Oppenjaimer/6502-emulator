@@ -262,6 +262,11 @@ fn setupNoValueABY(cpu: *CPU) void {
     cpu.y = 0x01;
 }
 
+fn setupNoValueIND(cpu: *CPU) void {
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+    cpu.writeWord(0x1234, 0x0011);
+}
+
 fn setupNoValueIDXNoWrap(cpu: *CPU) void {
     cpu.writeByte(START_ADDR + 1, 0x22);
     cpu.writeWord(0x0023, 0x0011);
@@ -525,6 +530,69 @@ fn testShiftRight(cpu: *CPU, opcode: Opcode, acc: bool, rotate: bool, setup: ?No
     try testing.expectEqual(cpu.getFlag(.N), rotate);
     try testing.expectEqual(src, 0x20 | mask);
     try testing.expectEqual(cpu.cycles, 0);    
+}
+
+// ---------------------------------- Jump -------------------------------------
+
+fn testJump(cpu: *CPU, opcode: Opcode, setup: NoValueSetupFn) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    setup(cpu);
+
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.pc, 0x0011);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testJumpBug(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x00FF);
+    cpu.writeByte(0x00FF, 0x34);
+    cpu.writeByte(0x0000, 0x12);
+
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.pc, 0x1234);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testJumpSubroutine(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.sp, CPU.RESET_SP - 2);
+    try testing.expectEqual(cpu.pc, 0x1234);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+fn testJumpReturnSubroutine(cpu: *CPU) !void {
+    const cycles_jsr = getInstructionCycles(cpu, .JSR_ABS);
+    const cycles_rts = getInstructionCycles(cpu, .RTS_IMP);
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(Opcode.JSR_ABS));
+    cpu.writeWord(START_ADDR + 1, 0x1234);
+
+    cpu.run(cycles_jsr);
+
+    try testing.expectEqual(cpu.sp, CPU.RESET_SP - 2);
+    try testing.expectEqual(cpu.pc, 0x1234);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(0x1234, @intFromEnum(Opcode.RTS_IMP));
+
+    cpu.run(cycles_rts);
+
+    try testing.expectEqual(cpu.sp, CPU.RESET_SP);
+    try testing.expectEqual(cpu.pc, START_ADDR + 2);
+    try testing.expectEqual(cpu.cycles, 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -1736,4 +1804,28 @@ test "ROR ABS" {
 test "ROR ABX" {
     var ctx = TestContext.init();
     try testShiftRight(&ctx.cpu, .ROR_ABX, false, true, &setupNoValueABX);
+}
+
+// ------------------------------- JMP - Jump ----------------------------------
+
+test "JMP ABS" {
+    var ctx = TestContext.init();
+    try testJump(&ctx.cpu, .JMP_ABS, &setupNoValueABS);
+}
+
+test "JMP IND no bug" {
+    var ctx = TestContext.init();
+    try testJump(&ctx.cpu, .JMP_IND, &setupNoValueIND);
+}
+
+test "JMP IND bug" {
+    var ctx = TestContext.init();
+    try testJumpBug(&ctx.cpu, .JMP_IND);
+}
+
+// ---------------- JSR/RTS - Jump to/Return from subroutine -------------------
+
+test "JSR ABS / RTS IMP" {
+    var ctx = TestContext.init();
+    try testJumpReturnSubroutine(&ctx.cpu);
 }

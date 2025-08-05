@@ -156,6 +156,15 @@ pub const CPU = struct {
 
         // ROR - Rotate right
         ROR_IMP = 0x6A, ROR_ZPG = 0x66, ROR_ZPX = 0x76, ROR_ABS = 0x6E, ROR_ABX = 0x7E,
+
+        // JMP - Jump
+        JMP_ABS = 0x4C, JMP_IND = 0x6C,
+
+        // JSR - Jump to subroutine
+        JSR_ABS = 0x20,
+
+        // RTS - Return from subroutine
+        RTS_IMP = 0x60,
     };
 
     pub const AddressingMode = enum {
@@ -368,7 +377,21 @@ pub const CPU = struct {
                     .pageCrossed = isPageCrossed(base_addr, addr),
                 };
             },
-            .IND => undefined,
+            .IND => {
+                const base_addr = self.fetchWord();
+
+                // Implement known 6502 bug
+                if (base_addr & 0x00FF == 0xFF) {
+                    const page = base_addr & 0xFF00;
+                    const low:  u16 = self.readByte(page | 0xFF);
+                    const high: u16 = self.readByte(page | 0x00);
+
+                    return .{ .addr = (high << 8) | low };
+                }
+
+                const addr = self.readWord(base_addr);
+                return .{ .addr = addr };
+            },
             .IDX => {
                 const base_zpg_addr = self.fetchByte();
                 const zpg_addr = base_zpg_addr +% self.x;
@@ -578,11 +601,15 @@ pub const CPU = struct {
         self.addInstruction(.ROR_ZPX, "ROR", .ZPX, &executeROR, 6);
         self.addInstruction(.ROR_ABS, "ROR", .ABS, &executeROR, 6);
         self.addInstruction(.ROR_ABX, "ROR", .ABX, &executeROR, 7);
+
+        self.addInstruction(.JMP_ABS, "JMP", .ABS, &executeJMP, 3);
+        self.addInstruction(.JMP_IND, "JMP", .IND, &executeJMP, 5);
+
+        self.addInstruction(.JSR_ABS, "JSR", .ABS, &executeJSR, 6);
+        self.addInstruction(.RTS_IMP, "RTS", .IMP, &executeRTS, 6);
     }
 
     // ------------------------- LDA - Load accumulator ----------------------------
-    // Function:    A = M
-    // Flags:       Z,N
 
     fn executeLDA(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -595,8 +622,6 @@ pub const CPU = struct {
     }
 
     // -------------------------- LDX - Load X register ----------------------------
-    // Function:    X = M
-    // Flags:       Z,N
 
     fn executeLDX(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -609,8 +634,6 @@ pub const CPU = struct {
     }
 
     // -------------------------- LDY - Load Y register ----------------------------
-    // Function:    Y = M
-    // Flags:       Z,N
 
     fn executeLDY(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -623,8 +646,6 @@ pub const CPU = struct {
     }
 
     // ------------------------- STA - Store accumulator ---------------------------
-    // Function:    M = A
-    // Flags:       none
 
     fn executeSTA(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -635,8 +656,6 @@ pub const CPU = struct {
     }
 
     // ------------------------- STX - Store X register ----------------------------
-    // Function:    M = X
-    // Flags:       none
 
     fn executeSTX(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -647,8 +666,6 @@ pub const CPU = struct {
     }
 
     // ------------------------- STY - Store Y register ----------------------------
-    // Function:    M = Y
-    // Flags:       none
 
     fn executeSTY(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -659,8 +676,6 @@ pub const CPU = struct {
     }
 
     // --------------------- TAX - Transfer accumulator to X -----------------------
-    // Function:    X = A
-    // Flags:       Z,N
 
     fn executeTAX(self: *CPU, _: AddressingMode) u1 {
         self.x = self.a;
@@ -670,8 +685,6 @@ pub const CPU = struct {
     }
 
     // --------------------- TAY - Transfer accumulator to Y -----------------------
-    // Function:    Y = A
-    // Flags:       Z,N
 
     fn executeTAY(self: *CPU, _: AddressingMode) u1 {
         self.y = self.a;
@@ -681,8 +694,6 @@ pub const CPU = struct {
     }
 
     // --------------------- TXA - Transfer X to accumulator -----------------------
-    // Function:    A = X
-    // Flags:       Z,N
 
     fn executeTXA(self: *CPU, _: AddressingMode) u1 {
         self.a = self.x;
@@ -692,8 +703,6 @@ pub const CPU = struct {
     }
 
     // --------------------- TYA - Transfer Y to accumulator -----------------------
-    // Function:    A = Y
-    // Flags:       Z,N
 
     fn executeTYA(self: *CPU, _: AddressingMode) u1 {
         self.a = self.y;
@@ -703,8 +712,6 @@ pub const CPU = struct {
     }
 
     // ------------------------- TSX - Transfer SP to X ----------------------------
-    // Function:    X = SP
-    // Flags:       Z,N
 
     fn executeTSX(self: *CPU, _: AddressingMode) u1 {
         self.x = self.sp;
@@ -714,8 +721,6 @@ pub const CPU = struct {
     }
 
     // ------------------------- TXS - Transfer X to SP ----------------------------
-    // Function:    SP = X
-    // Flags:       none
 
     fn executeTXS(self: *CPU, _: AddressingMode) u1 {
         self.sp = self.x;
@@ -724,8 +729,6 @@ pub const CPU = struct {
     }
 
     // -------------------- PHA - Push accumulator onto stack ----------------------
-    // Function:    *SP = A; SP--
-    // Flags:       none
 
     fn executePHA(self: *CPU, _: AddressingMode) u1 {
         self.stackPush(self.a);
@@ -734,8 +737,6 @@ pub const CPU = struct {
     }
 
     // ----------------- PHP - Push processor status onto stack --------------------
-    // Function:    *SP = status; SP--
-    // Flags:       none
 
     fn executePHP(self: *CPU, _: AddressingMode) u1 {
         self.stackPush(self.status);
@@ -744,8 +745,6 @@ pub const CPU = struct {
     }
 
     // -------------------- PLA - Pull accumulator from stack ----------------------
-    // Function:    A = *SP; SP++
-    // Flags:       Z,N
 
     fn executePLA(self: *CPU, _: AddressingMode) u1 {
         self.a = self.stackPull();
@@ -755,8 +754,6 @@ pub const CPU = struct {
     }
 
     // ----------------- PLP - Pull processor status from stack --------------------
-    // Function:    status = *SP; SP++
-    // Flags:       all
 
     fn executePLP(self: *CPU, _: AddressingMode) u1 {
         self.status = self.stackPull();
@@ -765,8 +762,6 @@ pub const CPU = struct {
     }
 
     // ---------------------------- AND - Logical AND ------------------------------
-    // Function:    A = A & M
-    // Flags:       Z,N
 
     fn executeAND(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -779,8 +774,6 @@ pub const CPU = struct {
     }
 
     // --------------------------- EOR - Exclusive OR ------------------------------
-    // Function:    A = A ^ M
-    // Flags:       Z,N
 
     fn executeEOR(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -793,8 +786,6 @@ pub const CPU = struct {
     }
 
     // ---------------------------- ORA - Logical OR -------------------------------
-    // Function:    A = A | M
-    // Flags:       Z,N
 
     fn executeORA(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -807,8 +798,6 @@ pub const CPU = struct {
     }
 
     // ----------------------------- BIT - Bit test --------------------------------
-    // Function:    Z = !!(A & M); N = M7; V = M6
-    // Flags:       Z,V,N
 
     fn executeBIT(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -822,8 +811,6 @@ pub const CPU = struct {
     }
 
     // -------------------------- ADC - Add with carry -----------------------------
-    // Function:    A = A + M + C
-    // Flags:       C,Z,V,N
 
     fn executeADC(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -843,8 +830,6 @@ pub const CPU = struct {
     }
 
     // ------------------------ SBC - Subtract with carry --------------------------
-    // Function:    A = A - M - (1 - C)
-    // Flags:       C,Z,V,N
 
     fn executeSBC(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -864,8 +849,6 @@ pub const CPU = struct {
     }
 
     // ------------------------ CMP - Compare accumulator --------------------------
-    // Function:    R = A - M
-    // Flags:       C,Z,N
 
     fn executeCMP(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -878,8 +861,6 @@ pub const CPU = struct {
     }
 
     // ------------------------ CPX - Compare X register ---------------------------
-    // Function:    R = X - M
-    // Flags:       C,Z,N
 
     fn executeCPX(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -892,8 +873,6 @@ pub const CPU = struct {
     }
 
     // ------------------------ CPY - Compare Y register ---------------------------
-    // Function:    R = Y - M
-    // Flags:       C,Z,N
 
     fn executeCPY(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -906,8 +885,6 @@ pub const CPU = struct {
     }
 
     // ------------------------- INC - Increment memory ----------------------------
-    // Function:    M++
-    // Flags:       Z,N
 
     fn executeINC(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -921,8 +898,6 @@ pub const CPU = struct {
     }
 
     // ----------------------- INX - Increment X register --------------------------
-    // Function:    X++
-    // Flags:       Z,N
 
     fn executeINX(self: *CPU, _: AddressingMode) u1 {
         const result = self.x +% 1;
@@ -934,8 +909,6 @@ pub const CPU = struct {
     }
 
     // ----------------------- INY - Increment Y register --------------------------
-    // Function:    Y++
-    // Flags:       Z,N
 
     fn executeINY(self: *CPU, _: AddressingMode) u1 {
         const result = self.y +% 1;
@@ -947,8 +920,6 @@ pub const CPU = struct {
     }
 
     // ------------------------- DEC - Decrement memory ----------------------------
-    // Function:    M--
-    // Flags:       Z,N
 
     fn executeDEC(self: *CPU, mode: AddressingMode) u1 {
         const addr_res = self.resolveAddress(mode);
@@ -962,8 +933,6 @@ pub const CPU = struct {
     }
 
     // ----------------------- DEX - Decrement X register --------------------------
-    // Function:    X--
-    // Flags:       Z,N
 
     fn executeDEX(self: *CPU, _: AddressingMode) u1 {
         const result = self.x -% 1;
@@ -975,8 +944,6 @@ pub const CPU = struct {
     }
 
     // ----------------------- DEY - Decrement Y register --------------------------
-    // Function:    Y--
-    // Flags:       Z,N
 
     fn executeDEY(self: *CPU, _: AddressingMode) u1 {
         const result = self.y -% 1;
@@ -988,8 +955,6 @@ pub const CPU = struct {
     }
 
     // ----------------------- ASL - Arithmetic shift left -------------------------
-    // Function:    A = A * 2 or M = M * 2
-    // Flags:       C,Z,N
 
     fn executeASL(self: *CPU, mode: AddressingMode) u1 {
         var result: u16 = undefined;
@@ -1015,8 +980,6 @@ pub const CPU = struct {
     }
 
     // ------------------------ LSR - Logical shift right --------------------------
-    // Function:    A = A / 2 or M = M / 2
-    // Flags:       C,Z,N
 
     fn executeLSR(self: *CPU, mode: AddressingMode) u1 {
         var result: u8 = undefined;
@@ -1042,8 +1005,6 @@ pub const CPU = struct {
     }
 
     // ---------------------------- ROL - Rotate left ------------------------------
-    // Function:    A = A * 2 or M = M * 2
-    // Flags:       C,Z,N
 
     fn executeROL(self: *CPU, mode: AddressingMode) u1 {
         var result: u16 = undefined;
@@ -1070,8 +1031,6 @@ pub const CPU = struct {
     }
 
     // --------------------------- ROR - Rotate right ------------------------------
-    // Function:    A = A / 2 or M = M / 2
-    // Flags:       C,Z,N
 
     fn executeROR(self: *CPU, mode: AddressingMode) u1 {
         var result: u8 = undefined;
@@ -1094,6 +1053,40 @@ pub const CPU = struct {
 
         self.setFlagsZN(result);
 
+        return 0; // No extra cycles
+    }
+
+    // ------------------------------- JMP - Jump ----------------------------------
+
+    fn executeJMP(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+
+        self.pc = addr_res.addr;
+
+        return 0; // No extra cycles
+    }
+
+    // ------------------------ JSR - Jump to subroutine ---------------------------
+
+    fn executeJSR(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const ret_addr = self.pc - 1;
+        
+        self.stackPush(@intCast((ret_addr >> 8) & 0x00FF));
+        self.stackPush(@intCast(ret_addr & 0x00FF));
+        self.pc = addr_res.addr;
+        
+        return 0; // No extra cycles
+    }
+
+    // ---------------------- RTS - Return from subroutine -------------------------
+
+    fn executeRTS(self: *CPU, _: AddressingMode) u1 {
+        const low:  u16 = self.stackPull();
+        const high: u16 = self.stackPull();
+
+        self.pc = (high << 8) | low;
+        
         return 0; // No extra cycles
     }
 
