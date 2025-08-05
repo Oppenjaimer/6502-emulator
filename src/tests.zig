@@ -479,7 +479,53 @@ fn testIncrementDecrementRegister(cpu: *CPU, opcode: Opcode, op: IncDecOp, regis
     try testing.expectEqual(cpu.cycles, 0);
 }
 
+// --------------------------------- Shifts ------------------------------------
 
+fn testShiftLeft(cpu: *CPU, opcode: Opcode, acc: bool, rotate: bool, setup: ?NoValueSetupFn) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    if (!acc) setup.?(cpu);
+    
+    if (acc) cpu.a = 0x40
+    else cpu.writeByte(0x0011, 0x40);
+
+    cpu.setFlag(.C, true);
+    cpu.setFlag(.Z, true);
+    const mask: u8 = if (rotate) @intFromBool(cpu.getFlag(.C)) else 0;
+    cpu.run(cycles);
+
+    const src = if (acc) cpu.a else cpu.readByte(0x0011);
+
+    try testing.expectEqual(cpu.getFlag(.C), false);
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.N), true);
+    try testing.expectEqual(src, 0x80 | mask);
+    try testing.expectEqual(cpu.cycles, 0);    
+}
+
+fn testShiftRight(cpu: *CPU, opcode: Opcode, acc: bool, rotate: bool, setup: ?NoValueSetupFn) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+    if (!acc) setup.?(cpu);
+    
+    if (acc) cpu.a = 0x40
+    else cpu.writeByte(0x0011, 0x40);
+
+    cpu.setFlag(.C, true);
+    cpu.setFlag(.Z, true);
+    const mask: u8 = if (rotate) @as(u8, @intFromBool(cpu.getFlag(.C))) << 7 else 0;
+    cpu.run(cycles);
+
+    const src = if (acc) cpu.a else cpu.readByte(0x0011);
+
+    try testing.expectEqual(cpu.getFlag(.C), false);
+    try testing.expectEqual(cpu.getFlag(.Z), false);
+    try testing.expectEqual(cpu.getFlag(.N), rotate);
+    try testing.expectEqual(src, 0x20 | mask);
+    try testing.expectEqual(cpu.cycles, 0);    
+}
 
 // -----------------------------------------------------------------------------
 //                               CPU CORE TESTS                                 
@@ -1562,4 +1608,132 @@ test "DEX IMP" {
 test "DEY IMP" {
     var ctx = TestContext.init();
     try testIncrementDecrementRegister(&ctx.cpu, .DEY_IMP, &decrement, &ctx.cpu.y);
+}
+
+// ----------------------- ASL - Arithmetic shift left -------------------------
+
+test "ASL IMP" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ASL_IMP, true, false, null);
+}
+
+test "ASL ZPG" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ASL_ZPG, false, false, &setupNoValueZPG);
+}
+
+test "ASL ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ASL_ZPX, false, false, &setupNoValueZPXNoWrap);
+}
+
+test "ASL ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ASL_ZPX, false, false, &setupNoValueZPXWrap);
+}
+
+test "ASL ABS" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ASL_ABS, false, false, &setupNoValueABS);
+}
+
+test "ASL ABX" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ASL_ABX, false, false, &setupNoValueABX);
+}
+
+// ------------------------ LSR - Logical shift right --------------------------
+
+test "LSR IMP" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .LSR_IMP, true, false, null);
+}
+
+test "LSR ZPG" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .LSR_ZPG, false, false, &setupNoValueZPG);
+}
+
+test "LSR ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .LSR_ZPX, false, false, &setupNoValueZPXNoWrap);
+}
+
+test "LSR ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .LSR_ZPX, false, false, &setupNoValueZPXWrap);
+}
+
+test "LSR ABS" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .LSR_ABS, false, false, &setupNoValueABS);
+}
+
+test "LSR ABX" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .LSR_ABX, false, false, &setupNoValueABX);
+}
+
+// ---------------------------- ROL - Rotate left ------------------------------
+
+test "ROL IMP" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ROL_IMP, true, true, null);
+}
+
+test "ROL ZPG" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ROL_ZPG, false, true, &setupNoValueZPG);
+}
+
+test "ROL ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ROL_ZPX, false, true, &setupNoValueZPXNoWrap);
+}
+
+test "ROL ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ROL_ZPX, false, true, &setupNoValueZPXWrap);
+}
+
+test "ROL ABS" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ROL_ABS, false, true, &setupNoValueABS);
+}
+
+test "ROL ABX" {
+    var ctx = TestContext.init();
+    try testShiftLeft(&ctx.cpu, .ROL_ABX, false, true, &setupNoValueABX);
+}
+
+// --------------------------- ROR - Rotate right ------------------------------
+
+test "ROR IMP" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .ROR_IMP, true, true, null);
+}
+
+test "ROR ZPG" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .ROR_ZPG, false, true, &setupNoValueZPG);
+}
+
+test "ROR ZPX without wrap around" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .ROR_ZPX, false, true, &setupNoValueZPXNoWrap);
+}
+
+test "ROR ZPX with wrap around" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .ROR_ZPX, false, true, &setupNoValueZPXWrap);
+}
+
+test "ROR ABS" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .ROR_ABS, false, true, &setupNoValueABS);
+}
+
+test "ROR ABX" {
+    var ctx = TestContext.init();
+    try testShiftRight(&ctx.cpu, .ROR_ABX, false, true, &setupNoValueABX);
 }

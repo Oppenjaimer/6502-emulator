@@ -144,6 +144,18 @@ pub const CPU = struct {
 
         // DEY - Decrement Y register
         DEY_IMP = 0x88,
+
+        // ASL - Arithmetic shift left
+        ASL_IMP = 0x0A, ASL_ZPG = 0x06, ASL_ZPX = 0x16, ASL_ABS = 0x0E, ASL_ABX = 0x1E,
+
+        // LSR - Logical shift right
+        LSR_IMP = 0x4A, LSR_ZPG = 0x46, LSR_ZPX = 0x56, LSR_ABS = 0x4E, LSR_ABX = 0x5E,
+
+        // ROL - Rotate left
+        ROL_IMP = 0x2A, ROL_ZPG = 0x26, ROL_ZPX = 0x36, ROL_ABS = 0x2E, ROL_ABX = 0x3E,
+
+        // ROR - Rotate right
+        ROR_IMP = 0x6A, ROR_ZPG = 0x66, ROR_ZPX = 0x76, ROR_ABS = 0x6E, ROR_ABX = 0x7E,
     };
 
     pub const AddressingMode = enum {
@@ -257,7 +269,7 @@ pub const CPU = struct {
     }
 
     pub fn writeWord(self: *CPU, addr: u16, value: u16) void {
-        self.writeByte(addr + 0, @intCast(value & 0xFF));
+        self.writeByte(addr + 0, @intCast(value & 0x00FF));
         self.writeByte(addr + 1, @intCast(value >> 8));
     }
 
@@ -284,15 +296,15 @@ pub const CPU = struct {
         else self.status &= ~(@intFromEnum(flag));
     }
 
-    pub fn setFlagsZN(self: *CPU, value: u8) void {
-        self.setFlag(.Z, value == 0x00);
+    pub fn setFlagsZN(self: *CPU, value: u16) void {
+        self.setFlag(.Z, value == 0);
         self.setFlag(.N, isBitSet(value, 7));
     }
 
     pub fn setFlagsCZN(self: *CPU, value: i16) void {
         self.setFlag(.C, value >= 0);
         self.setFlag(.Z, value == 0);
-        self.setFlag(.N, value & 0x80 > 0);
+        self.setFlag(.N, isBitSet(@bitCast(value), 7));
     }
 
     pub fn getStackAddress(self: *CPU) u16 {
@@ -542,6 +554,30 @@ pub const CPU = struct {
 
         self.addInstruction(.DEX_IMP, "DEX", .IMP, &executeDEX, 2);
         self.addInstruction(.DEY_IMP, "DEY", .IMP, &executeDEY, 2);
+
+        self.addInstruction(.ASL_IMP, "ASL", .IMP, &executeASL, 2);
+        self.addInstruction(.ASL_ZPG, "ASL", .ZPG, &executeASL, 5);
+        self.addInstruction(.ASL_ZPX, "ASL", .ZPX, &executeASL, 6);
+        self.addInstruction(.ASL_ABS, "ASL", .ABS, &executeASL, 6);
+        self.addInstruction(.ASL_ABX, "ASL", .ABX, &executeASL, 7);
+
+        self.addInstruction(.LSR_IMP, "LSR", .IMP, &executeLSR, 2);
+        self.addInstruction(.LSR_ZPG, "LSR", .ZPG, &executeLSR, 5);
+        self.addInstruction(.LSR_ZPX, "LSR", .ZPX, &executeLSR, 6);
+        self.addInstruction(.LSR_ABS, "LSR", .ABS, &executeLSR, 6);
+        self.addInstruction(.LSR_ABX, "LSR", .ABX, &executeLSR, 7);
+
+        self.addInstruction(.ROL_IMP, "ROL", .IMP, &executeROL, 2);
+        self.addInstruction(.ROL_ZPG, "ROL", .ZPG, &executeROL, 5);
+        self.addInstruction(.ROL_ZPX, "ROL", .ZPX, &executeROL, 6);
+        self.addInstruction(.ROL_ABS, "ROL", .ABS, &executeROL, 6);
+        self.addInstruction(.ROL_ABX, "ROL", .ABX, &executeROL, 7);
+
+        self.addInstruction(.ROR_IMP, "ROR", .IMP, &executeROR, 2);
+        self.addInstruction(.ROR_ZPG, "ROR", .ZPG, &executeROR, 5);
+        self.addInstruction(.ROR_ZPX, "ROR", .ZPX, &executeROR, 6);
+        self.addInstruction(.ROR_ABS, "ROR", .ABS, &executeROR, 6);
+        self.addInstruction(.ROR_ABX, "ROR", .ABX, &executeROR, 7);
     }
 
     // ------------------------- LDA - Load accumulator ----------------------------
@@ -951,6 +987,116 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
+    // ----------------------- ASL - Arithmetic shift left -------------------------
+    // Function:    A = A * 2 or M = M * 2
+    // Flags:       C,Z,N
+
+    fn executeASL(self: *CPU, mode: AddressingMode) u1 {
+        var result: u16 = undefined;
+
+        if (mode == .IMP) {
+            self.setFlag(.C, isBitSet(self.a, 7));
+
+            result = @as(u16, self.a) << 1;
+            self.a = @intCast(result & 0x00FF);
+        } else {
+            const addr_res = self.resolveAddress(mode);
+            const value = self.readByte(addr_res.addr);
+
+            self.setFlag(.C, isBitSet(value, 7));
+
+            result = @as(u16, value) << 1;
+            self.writeByte(addr_res.addr, @intCast(result & 0x00FF));
+        }
+
+        self.setFlagsZN(result);
+
+        return 0; // No extra cycles
+    }
+
+    // ------------------------ LSR - Logical shift right --------------------------
+    // Function:    A = A / 2 or M = M / 2
+    // Flags:       C,Z,N
+
+    fn executeLSR(self: *CPU, mode: AddressingMode) u1 {
+        var result: u8 = undefined;
+
+        if (mode == .IMP) {
+            self.setFlag(.C, isBitSet(self.a, 0));
+
+            result = self.a >> 1;
+            self.a = result;
+        } else {
+            const addr_res = self.resolveAddress(mode);
+            const value = self.readByte(addr_res.addr);
+
+            self.setFlag(.C, isBitSet(value, 0));
+
+            result = value >> 1;
+            self.writeByte(addr_res.addr, result);
+        }
+
+        self.setFlagsZN(result);
+
+        return 0; // No extra cycles
+    }
+
+    // ---------------------------- ROL - Rotate left ------------------------------
+    // Function:    A = A * 2 or M = M * 2
+    // Flags:       C,Z,N
+
+    fn executeROL(self: *CPU, mode: AddressingMode) u1 {
+        var result: u16 = undefined;
+        const carry = @intFromBool(self.getFlag(.C));
+
+        if (mode == .IMP) {
+            self.setFlag(.C, isBitSet(self.a, 7));
+
+            result = (@as(u16, self.a) << 1) | carry;
+            self.a = @intCast(result & 0x00FF);
+        } else {
+            const addr_res = self.resolveAddress(mode);
+            const value = self.readByte(addr_res.addr);
+
+            self.setFlag(.C, isBitSet(value, 7));
+
+            result = (@as(u16, value) << 1) | carry;
+            self.writeByte(addr_res.addr, @intCast(result & 0x00FF));
+        }
+
+        self.setFlagsZN(result);
+
+        return 0; // No extra cycles
+    }
+
+    // --------------------------- ROR - Rotate right ------------------------------
+    // Function:    A = A / 2 or M = M / 2
+    // Flags:       C,Z,N
+
+    fn executeROR(self: *CPU, mode: AddressingMode) u1 {
+        var result: u8 = undefined;
+        const carry = @intFromBool(self.getFlag(.C));
+
+        if (mode == .IMP) {
+            self.setFlag(.C, isBitSet(self.a, 0));
+
+            result = (self.a >> 1) | (@as(u8, carry) << 7);
+            self.a = result;
+        } else {
+            const addr_res = self.resolveAddress(mode);
+            const value = self.readByte(addr_res.addr);
+
+            self.setFlag(.C, isBitSet(value, 0));
+
+            result = (value >> 1) | (@as(u8, carry) << 7);
+            self.writeByte(addr_res.addr, result);
+        }
+
+        self.setFlagsZN(result);
+
+        return 0; // No extra cycles
+    }
+
     // ------------------------ ??? - Unknown instruction --------------------------
 
     fn unknownInstruction(_: *CPU, _:AddressingMode) u1 {
@@ -970,8 +1116,8 @@ pub const CPU = struct {
         return @intCast((byte >> bit) & 0b1);
     }
 
-    pub fn isBitSet(byte: u8, bit: u3) bool {
-        return (byte & (@as(u8, 1) << bit)) != 0;
+    pub fn isBitSet(value: u16, bit: u4) bool {
+        return (value & (@as(u16, 1) << bit)) != 0;
     }
 
     fn isPageCrossed(base_addr: u16, eff_addr: u16) bool {
