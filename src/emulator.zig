@@ -116,6 +116,16 @@ pub const CPU = struct {
         // SBC - Subtract with carry
         SBC_IMM = 0xE9, SBC_ZPG = 0xE5, SBC_ZPX = 0xF5, SBC_ABS = 0xED, SBC_ABX = 0xFD,
         SBC_ABY = 0xF9, SBC_IDX = 0xE1, SBC_IDY = 0xF1,
+
+        // CMP - Compare accumulator
+        CMP_IMM = 0xC9, CMP_ZPG = 0xC5, CMP_ZPX = 0xD5, CMP_ABS = 0xCD, CMP_ABX = 0xDD,
+        CMP_ABY = 0xD9, CMP_IDX = 0xC1, CMP_IDY = 0xD1,
+
+        // CPX - Compare X register
+        CPX_IMM = 0xE0, CPX_ZPG = 0xE4, CPX_ABS = 0xEC,
+
+        // CPY - Compare Y register
+        CPY_IMM = 0xC0, CPY_ZPG = 0xC4, CPY_ABS = 0xCC,
     };
 
     pub const AddressingMode = enum {
@@ -259,6 +269,12 @@ pub const CPU = struct {
     pub fn setFlagsZN(self: *CPU, value: u8) void {
         self.setFlag(.Z, value == 0x00);
         self.setFlag(.N, isBitSet(value, 7));
+    }
+
+    pub fn setFlagsCZN(self: *CPU, value: i16) void {
+        self.setFlag(.C, value >= 0);
+        self.setFlag(.Z, value == 0);
+        self.setFlag(.N, value & 0x80 > 0);
     }
 
     pub fn getStackAddress(self: *CPU) u16 {
@@ -475,6 +491,23 @@ pub const CPU = struct {
         self.addInstruction(.SBC_ABY, "SBC", .ABY, &executeSBC, 4);
         self.addInstruction(.SBC_IDX, "SBC", .IDX, &executeSBC, 6);
         self.addInstruction(.SBC_IDY, "SBC", .IDY, &executeSBC, 5);
+
+        self.addInstruction(.CMP_IMM, "CMP", .IMM, &executeCMP, 2);
+        self.addInstruction(.CMP_ZPG, "CMP", .ZPG, &executeCMP, 3);
+        self.addInstruction(.CMP_ZPX, "CMP", .ZPX, &executeCMP, 4);
+        self.addInstruction(.CMP_ABS, "CMP", .ABS, &executeCMP, 4);
+        self.addInstruction(.CMP_ABX, "CMP", .ABX, &executeCMP, 4);
+        self.addInstruction(.CMP_ABY, "CMP", .ABY, &executeCMP, 4);
+        self.addInstruction(.CMP_IDX, "CMP", .IDX, &executeCMP, 6);
+        self.addInstruction(.CMP_IDY, "CMP", .IDY, &executeCMP, 5);
+
+        self.addInstruction(.CPX_IMM, "CPX", .IMM, &executeCPX, 2);
+        self.addInstruction(.CPX_ZPG, "CPX", .ZPG, &executeCPX, 3);
+        self.addInstruction(.CPX_ABS, "CPX", .ABS, &executeCPX, 4);
+
+        self.addInstruction(.CPY_IMM, "CPY", .IMM, &executeCPY, 2);
+        self.addInstruction(.CPY_ZPG, "CPY", .ZPG, &executeCPY, 3);
+        self.addInstruction(.CPY_ABS, "CPY", .ABS, &executeCPY, 4);
     }
 
     // ------------------------- LDA - Load accumulator ----------------------------
@@ -712,8 +745,8 @@ pub const CPU = struct {
         const value = self.readByte(addr_res.addr);
         
         self.setFlag(.Z, (self.a & value) == 0x00);
-        self.setFlag(.V, getBit(value, 6) == 0b1);
-        self.setFlag(.N, getBit(value, 7) == 0b1);
+        self.setFlag(.V, isBitSet(value, 6));
+        self.setFlag(.N, isBitSet(value, 7));
 
         return 0; // No extra cycles
     }
@@ -758,6 +791,48 @@ pub const CPU = struct {
         self.a = result_byte;
 
         return @intFromBool(addr_res.pageCrossed);
+    }
+
+    // ------------------------ CMP - Compare accumulator --------------------------
+    // Function:    R = A - M
+    // Flags:       C,Z,N
+
+    fn executeCMP(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+        const result: i16 = @as(i16, self.a) - @as(i16, value);
+        
+        self.setFlagsCZN(result);
+
+        return @intFromBool(addr_res.pageCrossed);
+    }
+
+    // ------------------------ CPX - Compare X register ---------------------------
+    // Function:    R = X - M
+    // Flags:       C,Z,N
+
+    fn executeCPX(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+        const result: i16 = @as(i16, self.x) - @as(i16, value);
+        
+        self.setFlagsCZN(result);
+
+        return 0; // No extra cycles
+    }
+
+    // ------------------------ CPY - Compare Y register ---------------------------
+    // Function:    R = Y - M
+    // Flags:       C,Z,N
+
+    fn executeCPY(self: *CPU, mode: AddressingMode) u1 {
+        const addr_res = self.resolveAddress(mode);
+        const value = self.readByte(addr_res.addr);
+        const result: i16 = @as(i16, self.y) - @as(i16, value);
+        
+        self.setFlagsCZN(result);
+
+        return 0; // No extra cycles
     }
 
     // ------------------------ ??? - Unknown instruction --------------------------
