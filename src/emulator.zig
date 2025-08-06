@@ -318,6 +318,25 @@ pub const CPU = struct {
         }
     }
 
+    pub fn irq(self: *CPU) void {
+        if (self.getFlag(.I)) return;
+
+        self.stackPushWord(self.pc);
+        self.stackPushByte(self.status);
+        self.setFlag(.I, true);
+        self.pc = self.readWord(INTER_VECTOR);
+
+        self.cycles += 7;
+    }
+
+    pub fn nmi(self: *CPU) void {
+        self.stackPushWord(self.pc);
+        self.stackPushByte(self.status);
+        self.pc = self.readWord(NMI_VECTOR);
+
+        self.cycles += 8;
+    }
+
     pub fn readByte(self: *CPU, addr: u16) u8 {
         return self.memory.read(addr);
     }
