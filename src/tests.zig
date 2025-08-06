@@ -15,6 +15,10 @@ const START_ADDR: u16 = 0x3000;
 const START_HIGH: u8 = START_ADDR >> 8;
 const START_LOW:  u8 = START_ADDR & 0xFF;
 
+const INTER_ADDR: u16 = 0xAAAA;
+const INTER_HIGH: u8 = INTER_ADDR >> 8;
+const INTER_LOW:  u8 = INTER_ADDR & 0xFF;
+
 const LogicalOp = *const fn (u8, u8) u8;
 const ArithmeticOp = *const fn (u8, u8) u16;
 const IncDecOp = *const fn (u8) u8;
@@ -54,6 +58,10 @@ fn initMemory() Memory {
     // Set starting location
     mem.write(CPU.RESET_VECTOR + 0, START_LOW);
     mem.write(CPU.RESET_VECTOR + 1, START_HIGH);
+
+    // Set interrupt location
+    mem.write(CPU.INTER_VECTOR + 0, INTER_LOW);
+    mem.write(CPU.INTER_VECTOR + 1, INTER_HIGH);
 
     return mem;
 }
@@ -639,10 +647,10 @@ fn testInterrupt(cpu: *CPU) !void {
 
     try testing.expectEqual(cpu.getFlag(.B), true);
     try testing.expectEqual(cpu.sp, CPU.RESET_SP - 3);
-    try testing.expectEqual(cpu.pc, CPU.INTER_VECTOR);
+    try testing.expectEqual(cpu.pc, INTER_ADDR);
     try testing.expectEqual(cpu.cycles, 0);
 
-    cpu.writeByte(CPU.INTER_VECTOR, @intFromEnum(Opcode.RTI_IMP));
+    cpu.writeByte(INTER_ADDR, @intFromEnum(Opcode.RTI_IMP));
 
     cpu.run(cycles_rti);
 

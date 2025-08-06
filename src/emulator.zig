@@ -1302,7 +1302,7 @@ pub const CPU = struct {
         self.stackPushWord(self.pc);
         self.stackPushByte(self.status);
         self.setFlag(.B, true);
-        self.pc = INTER_VECTOR;
+        self.pc = self.readWord(INTER_VECTOR);
 
         return 0; // No extra cycles
     }
