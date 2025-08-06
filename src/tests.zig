@@ -613,6 +613,20 @@ fn testBranch(cpu: *CPU, opcode: Opcode, flag: Flag, set: bool) !void {
     try testing.expectEqual(cpu.cycles, 0);
 }
 
+// ------------------------------ Change flags ---------------------------------
+
+fn testChangeFlag(cpu: *CPU, opcode: Opcode, flag: Flag, expected: bool) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+
+    cpu.setFlag(flag, !expected);
+    cpu.run(cycles);
+
+    try testing.expectEqual(cpu.getFlag(flag), expected);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
 // -----------------------------------------------------------------------------
 //                               CPU CORE TESTS                                 
 // -----------------------------------------------------------------------------
@@ -1855,37 +1869,88 @@ test "BCC REL" {
     try testBranch(&ctx.cpu, .BCC_REL, .C, false);
 }
 
+// ------------------------ BCS - Branch if carry set --------------------------
+
 test "BCS REL" {
     var ctx = TestContext.init();
     try testBranch(&ctx.cpu, .BCS_REL, .C, true);
 }
+
+// ------------------------ BEQ - Branch if zero set ---------------------------
 
 test "BEQ REL" {
     var ctx = TestContext.init();
     try testBranch(&ctx.cpu, .BEQ_REL, .Z, true);
 }
 
+// ---------------------- BMI - Branch if negative set -------------------------
+
 test "BMI REL" {
     var ctx = TestContext.init();
     try testBranch(&ctx.cpu, .BMI_REL, .N, true);
 }
+
+// --------------------- BNE - Branch if negative clear ------------------------
 
 test "BNE REL" {
     var ctx = TestContext.init();
     try testBranch(&ctx.cpu, .BNE_REL, .Z, false);
 }
 
+// --------------------- BPL - Branch if negative clear ------------------------
+
 test "BPL REL" {
     var ctx = TestContext.init();
     try testBranch(&ctx.cpu, .BPL_REL, .N, false);
 }
+
+// --------------------- BVC - Branch if overflow clear ------------------------
 
 test "BVC REL" {
     var ctx = TestContext.init();
     try testBranch(&ctx.cpu, .BVC_REL, .V, false);
 }
 
+// ---------------------- BVS - Branch if overflow set -------------------------
+
 test "BVS REL" {
     var ctx = TestContext.init();
     try testBranch(&ctx.cpu, .BVS_REL, .V, true);
+}
+
+// ------------------------- CLC - Clear carry flag ----------------------------
+
+test "CLC IMP" {
+    var ctx = TestContext.init();
+    try testChangeFlag(&ctx.cpu, .CLC_IMP, .C, false);
+}
+
+test "CLD IMP" {
+    var ctx = TestContext.init();
+    try testChangeFlag(&ctx.cpu, .CLD_IMP, .D, false);
+}
+
+test "CLI IMP" {
+    var ctx = TestContext.init();
+    try testChangeFlag(&ctx.cpu, .CLI_IMP, .I, false);
+}
+
+test "CLV IMP" {
+    var ctx = TestContext.init();
+    try testChangeFlag(&ctx.cpu, .CLV_IMP, .V, false);
+}
+
+test "SEC IMP" {
+    var ctx = TestContext.init();
+    try testChangeFlag(&ctx.cpu, .SEC_IMP, .C, true);
+}
+
+test "SED IMP" {
+    var ctx = TestContext.init();
+    try testChangeFlag(&ctx.cpu, .SED_IMP, .D, true);
+}
+
+test "SEI IMP" {
+    var ctx = TestContext.init();
+    try testChangeFlag(&ctx.cpu, .SEI_IMP, .I, true);
 }

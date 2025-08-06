@@ -189,6 +189,27 @@ pub const CPU = struct {
 
         // BVS - Branch if overflow set
         BVS_REL = 0x70,
+
+        // CLC - Clear carry flag
+        CLC_IMP = 0x18,
+
+        // CLD - Clear decimal mode
+        CLD_IMP = 0xD8,
+
+        // CLI - Clear interrupt disable
+        CLI_IMP = 0x58,
+
+        // CLV - Clear overflow flag
+        CLV_IMP = 0xB8,
+
+        // SEC - Set carry flag
+        SEC_IMP = 0x38,
+
+        // SED - Set decimal mode
+        SED_IMP = 0xF8,
+
+        // SEI - Set interrupt disable
+        SEI_IMP = 0x78,
     };
 
     pub const AddressingMode = enum {
@@ -657,6 +678,14 @@ pub const CPU = struct {
         self.addInstruction(.BPL_REL, "BPL", .REL, &executeBPL, 2);
         self.addInstruction(.BVC_REL, "BVC", .REL, &executeBVC, 2);
         self.addInstruction(.BVS_REL, "BVS", .REL, &executeBVS, 2);
+
+        self.addInstruction(.CLC_IMP, "CLC", .IMP, &executeCLC, 2);
+        self.addInstruction(.CLD_IMP, "CLD", .IMP, &executeCLD, 2);
+        self.addInstruction(.CLI_IMP, "CLI", .IMP, &executeCLI, 2);
+        self.addInstruction(.CLV_IMP, "CLV", .IMP, &executeCLV, 2);
+        self.addInstruction(.SEC_IMP, "SEC", .IMP, &executeSEC, 2);
+        self.addInstruction(.SED_IMP, "SED", .IMP, &executeSED, 2);
+        self.addInstruction(.SEI_IMP, "SEI", .IMP, &executeSEI, 2);
     }
 
     // ------------------------- LDA - Load accumulator ----------------------------
@@ -1186,6 +1215,62 @@ pub const CPU = struct {
 
     fn executeBVS(self: *CPU, _: AddressingMode) u2 {
         return self.branchIf(.V, true);
+    }
+
+    // ------------------------- CLC - Clear carry flag ----------------------------
+
+    fn executeCLC(self: *CPU, _: AddressingMode) u2 {
+        self.setFlag(.C, false);
+
+        return 0; // No extra cycles
+    }
+
+    // ------------------------ CLD - Clear decimal mode ---------------------------
+
+    fn executeCLD(self: *CPU, _: AddressingMode) u2 {
+        self.setFlag(.D, false);
+        
+        return 0; // No extra cycles
+    }
+
+    // ---------------------- CLI - Clear interrupt disable ------------------------
+
+    fn executeCLI(self: *CPU, _: AddressingMode) u2 {
+        self.setFlag(.I, false);
+        
+        return 0; // No extra cycles
+    }
+
+    // ------------------------ CLV - Clear overflow flag --------------------------
+
+    fn executeCLV(self: *CPU, _: AddressingMode) u2 {
+        self.setFlag(.V, false);
+        
+        return 0; // No extra cycles
+    }
+
+    // -------------------------- SEC - Set carry flag -----------------------------
+
+    fn executeSEC(self: *CPU, _: AddressingMode) u2 {
+        self.setFlag(.C, true);
+        
+        return 0; // No extra cycles
+    }
+
+    // ------------------------- SED - Set decimal mode ----------------------------
+
+    fn executeSED(self: *CPU, _: AddressingMode) u2 {
+        self.setFlag(.D, true);
+        
+        return 0; // No extra cycles
+    }
+
+    // ----------------------- SEI - Set interrupt disable -------------------------
+
+    fn executeSEI(self: *CPU, _: AddressingMode) u2 {
+        self.setFlag(.I, true);
+        
+        return 0; // No extra cycles
     }
 
     // ------------------------ ??? - Unknown instruction --------------------------
