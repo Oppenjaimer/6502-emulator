@@ -31,6 +31,8 @@ pub const CPU = struct {
     pub const RESET_STATUS: u8    = 0b100100;   // Set I,U
     pub const RESET_CYCLES: u32   = 7;          // Reset sequence takes 7 cycles
     pub const TABLE_SIZE:   usize = 256;        // Instruction table size (16x16)
+    pub const INTER_VECTOR: u16   = 0xFFFE;     // Interrupt vector used by BRK and IRQ
+    pub const NMI_VECTOR:   u16   = 0xFFFA;     // Interrupt vector used by NMI
 
     pub const Flag = enum(u8) {
         C = 1 << 0, // Carry flag
@@ -210,6 +212,15 @@ pub const CPU = struct {
 
         // SEI - Set interrupt disable
         SEI_IMP = 0x78,
+
+        // BRK - Force interrupt
+        BRK_IMP = 0x00,
+
+        // NOP - No operation
+        NOP_IMP = 0xEA,
+
+        // RTI - Return from interrupt
+        RTI_IMP = 0x40,
     };
 
     pub const AddressingMode = enum {
@@ -365,16 +376,28 @@ pub const CPU = struct {
         return 0x0100 | @as(u16, self.sp);
     }
 
-    pub fn stackPush(self: *CPU, value: u8) void {
+    pub fn stackPushByte(self: *CPU, value: u8) void {
         self.writeByte(self.getStackAddress(), value);
         self.sp -= 1;
     }
 
-    pub fn stackPull(self: *CPU) u8 {
+    pub fn stackPushWord(self: *CPU, value: u16) void {
+        self.stackPushByte(@intCast((value >> 8) & 0x00FF));
+        self.stackPushByte(@intCast(value & 0x00FF));
+    }
+
+    pub fn stackPullByte(self: *CPU) u8 {
         const value = self.readByte(self.getStackAddress() + 1);
         self.sp += 1;
 
         return value;
+    }
+
+    pub fn stackPullWord(self: *CPU) u16 {
+        const low:  u16 = self.stackPullByte();
+        const high: u16 = self.stackPullByte();
+
+        return (high << 8) | low;
     }
 
     pub fn branchIf(self: *CPU, flag: Flag, expected: bool) u2 {
@@ -686,6 +709,10 @@ pub const CPU = struct {
         self.addInstruction(.SEC_IMP, "SEC", .IMP, &executeSEC, 2);
         self.addInstruction(.SED_IMP, "SED", .IMP, &executeSED, 2);
         self.addInstruction(.SEI_IMP, "SEI", .IMP, &executeSEI, 2);
+
+        self.addInstruction(.BRK_IMP, "BRK", .IMP, &executeBRK, 7);
+        self.addInstruction(.NOP_IMP, "NOP", .IMP, &executeNOP, 2);
+        self.addInstruction(.RTI_IMP, "RTI", .IMP, &executeRTI, 6);
     }
 
     // ------------------------- LDA - Load accumulator ----------------------------
@@ -810,7 +837,7 @@ pub const CPU = struct {
     // -------------------- PHA - Push accumulator onto stack ----------------------
 
     fn executePHA(self: *CPU, _: AddressingMode) u2 {
-        self.stackPush(self.a);
+        self.stackPushByte(self.a);
 
         return 0; // No extra cycles
     }
@@ -818,7 +845,7 @@ pub const CPU = struct {
     // ----------------- PHP - Push processor status onto stack --------------------
 
     fn executePHP(self: *CPU, _: AddressingMode) u2 {
-        self.stackPush(self.status);
+        self.stackPushByte(self.status);
 
         return 0; // No extra cycles
     }
@@ -826,7 +853,7 @@ pub const CPU = struct {
     // -------------------- PLA - Pull accumulator from stack ----------------------
 
     fn executePLA(self: *CPU, _: AddressingMode) u2 {
-        self.a = self.stackPull();
+        self.a = self.stackPullByte();
         self.setFlagsZN(self.a);
 
         return 0; // No extra cycles
@@ -835,7 +862,7 @@ pub const CPU = struct {
     // ----------------- PLP - Pull processor status from stack --------------------
 
     fn executePLP(self: *CPU, _: AddressingMode) u2 {
-        self.status = self.stackPull();
+        self.status = self.stackPullByte();
 
         return 0; // No extra cycles
     }
@@ -1151,8 +1178,7 @@ pub const CPU = struct {
         const addr_res = self.resolveAddress(mode);
         const ret_addr = self.pc - 1;
         
-        self.stackPush(@intCast((ret_addr >> 8) & 0x00FF));
-        self.stackPush(@intCast(ret_addr & 0x00FF));
+        self.stackPushWord(ret_addr);
         self.pc = addr_res.addr;
         
         return 0; // No extra cycles
@@ -1161,10 +1187,7 @@ pub const CPU = struct {
     // ---------------------- RTS - Return from subroutine -------------------------
 
     fn executeRTS(self: *CPU, _: AddressingMode) u2 {
-        const low:  u16 = self.stackPull();
-        const high: u16 = self.stackPull();
-
-        self.pc = (high << 8) | low;
+        self.pc = self.stackPullWord();
         
         return 0; // No extra cycles
     }
@@ -1270,6 +1293,32 @@ pub const CPU = struct {
     fn executeSEI(self: *CPU, _: AddressingMode) u2 {
         self.setFlag(.I, true);
         
+        return 0; // No extra cycles
+    }
+
+    // -------------------------- BRK - Force interrupt ----------------------------
+
+    fn executeBRK(self: *CPU, _:  AddressingMode) u2 {
+        self.stackPushWord(self.pc);
+        self.stackPushByte(self.status);
+        self.setFlag(.B, true);
+        self.pc = INTER_VECTOR;
+
+        return 0; // No extra cycles
+    }
+
+    // --------------------------- NOP - No operation ------------------------------
+
+    fn executeNOP(_: *CPU, _:  AddressingMode) u2 {
+        return 0; // No extra cycles
+    }
+
+    // ----------------------- RTI - Return from interrupt -------------------------
+
+    fn executeRTI(self: *CPU, _:  AddressingMode) u2 {
+        self.status = self.stackPullByte();
+        self.pc = self.stackPullWord();
+
         return 0; // No extra cycles
     }
 

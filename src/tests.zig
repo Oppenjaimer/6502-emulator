@@ -363,7 +363,7 @@ fn testStackPull(cpu: *CPU, opcode: Opcode, register: *u8) !void {
     cpu.writeByte(START_ADDR, @intFromEnum(opcode));
 
     cpu.setFlag(.Z, true);
-    cpu.stackPush(0x80);
+    cpu.stackPushByte(0x80);
     cpu.run(cycles);
 
     try testing.expectEqual(cpu.getFlag(.Z), false);
@@ -624,6 +624,43 @@ fn testChangeFlag(cpu: *CPU, opcode: Opcode, flag: Flag, expected: bool) !void {
     cpu.run(cycles);
 
     try testing.expectEqual(cpu.getFlag(flag), expected);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+// ------------------------------- Interrupts ----------------------------------
+
+fn testInterrupt(cpu: *CPU) !void {
+    const cycles_brk = getInstructionCycles(cpu, .BRK_IMP);
+    const cycles_rti = getInstructionCycles(cpu, .RTI_IMP);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(Opcode.BRK_IMP));
+
+    cpu.run(cycles_brk);
+
+    try testing.expectEqual(cpu.getFlag(.B), true);
+    try testing.expectEqual(cpu.sp, CPU.RESET_SP - 3);
+    try testing.expectEqual(cpu.pc, CPU.INTER_VECTOR);
+    try testing.expectEqual(cpu.cycles, 0);
+
+    cpu.writeByte(CPU.INTER_VECTOR, @intFromEnum(Opcode.RTI_IMP));
+
+    cpu.run(cycles_rti);
+
+    try testing.expectEqual(cpu.getFlag(.B), false);
+    try testing.expectEqual(cpu.sp, CPU.RESET_SP);
+    try testing.expectEqual(cpu.pc, START_ADDR + 1);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+// ------------------------------ No operation ---------------------------------
+
+fn testNoOperation(cpu: *CPU, opcode: Opcode) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+
+    cpu.writeByte(START_ADDR, @intFromEnum(opcode));
+
+    cpu.run(cycles);
+
     try testing.expectEqual(cpu.cycles, 0);
 }
 
@@ -1953,4 +1990,19 @@ test "SED IMP" {
 test "SEI IMP" {
     var ctx = TestContext.init();
     try testChangeFlag(&ctx.cpu, .SEI_IMP, .I, true);
+}
+
+// -------------------------- BRK - Force interrupt ----------------------------
+// ----------------------- RTI - Return from interrupt -------------------------
+
+test "BRK IMP / RTI IMP" {
+    var ctx = TestContext.init();
+    try testInterrupt(&ctx.cpu);
+}
+
+// --------------------------- NOP - No operation ------------------------------
+
+test "NOP IMP" {
+    var ctx = TestContext.init();
+    try testNoOperation(&ctx.cpu, .NOP_IMP);
 }
