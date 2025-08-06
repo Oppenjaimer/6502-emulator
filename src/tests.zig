@@ -5,6 +5,7 @@ const emulator = @import("emulator.zig");
 const CPU = emulator.CPU;
 const Memory = emulator.Memory;
 const Opcode = CPU.Opcode;
+const Flag = CPU.Flag;
 
 // -----------------------------------------------------------------------------
 //                                  CONSTANTS                                   
@@ -592,6 +593,23 @@ fn testJumpReturnSubroutine(cpu: *CPU) !void {
 
     try testing.expectEqual(cpu.sp, CPU.RESET_SP);
     try testing.expectEqual(cpu.pc, START_ADDR + 2);
+    try testing.expectEqual(cpu.cycles, 0);
+}
+
+// -------------------------------- Branching ----------------------------------
+
+fn testBranch(cpu: *CPU, opcode: Opcode, flag: Flag, set: bool) !void {
+    const cycles = getInstructionCycles(cpu, opcode);
+    const branch_taken = true;
+    const page_crossed = true;
+
+    cpu.writeByte(START_ADDR + 0, @intFromEnum(opcode));
+    cpu.writeByte(START_ADDR + 1, 0xF6); // offset: -10
+
+    cpu.setFlag(flag, set);
+    cpu.run(cycles + @intFromBool(branch_taken) + 2 * @as(u2, @intFromBool(page_crossed)));
+
+    try testing.expectEqual(cpu.pc, START_ADDR - 8);
     try testing.expectEqual(cpu.cycles, 0);
 }
 
@@ -1828,4 +1846,46 @@ test "JMP IND bug" {
 test "JSR ABS / RTS IMP" {
     var ctx = TestContext.init();
     try testJumpReturnSubroutine(&ctx.cpu);
+}
+
+// ----------------------- BCC - Branch if carry clear -------------------------
+
+test "BCC REL" {
+    var ctx = TestContext.init();
+    try testBranch(&ctx.cpu, .BCC_REL, .C, false);
+}
+
+test "BCS REL" {
+    var ctx = TestContext.init();
+    try testBranch(&ctx.cpu, .BCS_REL, .C, true);
+}
+
+test "BEQ REL" {
+    var ctx = TestContext.init();
+    try testBranch(&ctx.cpu, .BEQ_REL, .Z, true);
+}
+
+test "BMI REL" {
+    var ctx = TestContext.init();
+    try testBranch(&ctx.cpu, .BMI_REL, .N, true);
+}
+
+test "BNE REL" {
+    var ctx = TestContext.init();
+    try testBranch(&ctx.cpu, .BNE_REL, .Z, false);
+}
+
+test "BPL REL" {
+    var ctx = TestContext.init();
+    try testBranch(&ctx.cpu, .BPL_REL, .N, false);
+}
+
+test "BVC REL" {
+    var ctx = TestContext.init();
+    try testBranch(&ctx.cpu, .BVC_REL, .V, false);
+}
+
+test "BVS REL" {
+    var ctx = TestContext.init();
+    try testBranch(&ctx.cpu, .BVS_REL, .V, true);
 }

@@ -165,6 +165,30 @@ pub const CPU = struct {
 
         // RTS - Return from subroutine
         RTS_IMP = 0x60,
+
+        // BCC - Branch if carry clear
+        BCC_REL = 0x90,
+
+        // BCS - Branch if carry set
+        BCS_REL = 0xB0,
+
+        // BEQ - Branch if zero set
+        BEQ_REL = 0xF0,
+
+        // BMI - Branch if negative set
+        BMI_REL = 0x30,
+
+        // BNE - Branch if zero clear
+        BNE_REL = 0xD0,
+
+        // BPL - Branch if negative clear
+        BPL_REL = 0x10,
+
+        // BVC - Branch if overflow clear
+        BVC_REL = 0x50,
+
+        // BVS - Branch if overflow set
+        BVS_REL = 0x70,
     };
 
     pub const AddressingMode = enum {
@@ -184,10 +208,10 @@ pub const CPU = struct {
 
     pub const AddressResult = struct {
         addr: u16,                  // Address fetched
-        pageCrossed: bool = false,  // Whether a page (0-255) was crossed
+        page_crossed: bool = false,  // Whether a page (0-255) was crossed
     };
 
-    pub const InstructionHandler = *const fn (*CPU, AddressingMode) u1;
+    pub const InstructionHandler = *const fn (*CPU, AddressingMode) u2;
 
     pub const Instruction = struct {
         name: []const u8,               // Pneumonic (TODO: use for disassembly)
@@ -332,6 +356,15 @@ pub const CPU = struct {
         return value;
     }
 
+    pub fn branchIf(self: *CPU, flag: Flag, expected: bool) u2 {
+        if (self.getFlag(flag) != expected) return 0;
+
+        const addr_res = self.resolveAddress(.REL);
+        self.pc = addr_res.addr;
+        
+        return 1 + 2 * @as(u2, @intFromBool(addr_res.page_crossed));
+    }
+
     pub fn resolveAddress(self: *CPU, mode: AddressingMode) AddressResult {
         return switch (mode) {
             .IMP => {
@@ -356,7 +389,15 @@ pub const CPU = struct {
                 const addr = base_addr +% self.y;
                 return .{ .addr = addr };
             },
-            .REL => undefined,
+            .REL => {
+                const unsigned_offset = self.fetchByte();
+                const signed_offset: i8 = @bitCast(unsigned_offset);
+                const addr: u16 = @intCast(@as(i32, self.pc) + @as(i32, signed_offset));
+                return .{ 
+                    .addr = addr,
+                    .page_crossed = isPageCrossed(addr, self.pc),
+                 };
+            },
             .ABS => {
                 const addr = self.fetchWord();
                 return .{ .addr = addr };
@@ -366,7 +407,7 @@ pub const CPU = struct {
                 const addr = base_addr + self.x;
                 return .{
                     .addr = addr,
-                    .pageCrossed = isPageCrossed(base_addr, addr)
+                    .page_crossed = isPageCrossed(base_addr, addr),
                 };
             },
             .ABY => {
@@ -374,7 +415,7 @@ pub const CPU = struct {
                 const addr = base_addr + self.y;
                 return .{
                     .addr = addr,
-                    .pageCrossed = isPageCrossed(base_addr, addr),
+                    .page_crossed = isPageCrossed(base_addr, addr),
                 };
             },
             .IND => {
@@ -404,7 +445,7 @@ pub const CPU = struct {
                 const addr = base_addr + self.y;
                 return .{
                     .addr = addr,
-                    .pageCrossed = isPageCrossed(base_addr, addr),
+                    .page_crossed = isPageCrossed(base_addr, addr),
                 };
             }
         };
@@ -412,9 +453,9 @@ pub const CPU = struct {
 
     pub fn executeInstruction(self: *CPU, opcode: Opcode) u32 {
         const instruction = self.instruction_table[@intFromEnum(opcode)];
-        const extra_cycle = instruction.execute(self, instruction.mode);
+        const extra_cycles = instruction.execute(self, instruction.mode);
 
-        return instruction.cycles + extra_cycle;
+        return instruction.cycles + extra_cycles;
     }
 
     // -----------------------------------------------------------------------------
@@ -607,47 +648,56 @@ pub const CPU = struct {
 
         self.addInstruction(.JSR_ABS, "JSR", .ABS, &executeJSR, 6);
         self.addInstruction(.RTS_IMP, "RTS", .IMP, &executeRTS, 6);
+
+        self.addInstruction(.BCC_REL, "BCC", .REL, &executeBCC, 2);
+        self.addInstruction(.BCS_REL, "BCS", .REL, &executeBCS, 2);
+        self.addInstruction(.BEQ_REL, "BEQ", .REL, &executeBEQ, 2);
+        self.addInstruction(.BMI_REL, "BMI", .REL, &executeBMI, 2);
+        self.addInstruction(.BNE_REL, "BNE", .REL, &executeBNE, 2);
+        self.addInstruction(.BPL_REL, "BPL", .REL, &executeBPL, 2);
+        self.addInstruction(.BVC_REL, "BVC", .REL, &executeBVC, 2);
+        self.addInstruction(.BVS_REL, "BVS", .REL, &executeBVS, 2);
     }
 
     // ------------------------- LDA - Load accumulator ----------------------------
 
-    fn executeLDA(self: *CPU, mode: AddressingMode) u1 {
+    fn executeLDA(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
 
         self.a = value;
         self.setFlagsZN(value);
 
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // -------------------------- LDX - Load X register ----------------------------
 
-    fn executeLDX(self: *CPU, mode: AddressingMode) u1 {
+    fn executeLDX(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
 
         self.x = value;
         self.setFlagsZN(value);
         
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // -------------------------- LDY - Load Y register ----------------------------
 
-    fn executeLDY(self: *CPU, mode: AddressingMode) u1 {
+    fn executeLDY(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
 
         self.y = value;
         self.setFlagsZN(value);
         
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // ------------------------- STA - Store accumulator ---------------------------
 
-    fn executeSTA(self: *CPU, mode: AddressingMode) u1 {
+    fn executeSTA(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
 
         self.writeByte(addr_res.addr, self.a);
@@ -657,7 +707,7 @@ pub const CPU = struct {
 
     // ------------------------- STX - Store X register ----------------------------
 
-    fn executeSTX(self: *CPU, mode: AddressingMode) u1 {
+    fn executeSTX(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
 
         self.writeByte(addr_res.addr, self.x);
@@ -667,7 +717,7 @@ pub const CPU = struct {
 
     // ------------------------- STY - Store Y register ----------------------------
 
-    fn executeSTY(self: *CPU, mode: AddressingMode) u1 {
+    fn executeSTY(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
 
         self.writeByte(addr_res.addr, self.y);
@@ -677,7 +727,7 @@ pub const CPU = struct {
 
     // --------------------- TAX - Transfer accumulator to X -----------------------
 
-    fn executeTAX(self: *CPU, _: AddressingMode) u1 {
+    fn executeTAX(self: *CPU, _: AddressingMode) u2 {
         self.x = self.a;
         self.setFlagsZN(self.x);
 
@@ -686,7 +736,7 @@ pub const CPU = struct {
 
     // --------------------- TAY - Transfer accumulator to Y -----------------------
 
-    fn executeTAY(self: *CPU, _: AddressingMode) u1 {
+    fn executeTAY(self: *CPU, _: AddressingMode) u2 {
         self.y = self.a;
         self.setFlagsZN(self.y);
 
@@ -695,7 +745,7 @@ pub const CPU = struct {
 
     // --------------------- TXA - Transfer X to accumulator -----------------------
 
-    fn executeTXA(self: *CPU, _: AddressingMode) u1 {
+    fn executeTXA(self: *CPU, _: AddressingMode) u2 {
         self.a = self.x;
         self.setFlagsZN(self.a);
 
@@ -704,7 +754,7 @@ pub const CPU = struct {
 
     // --------------------- TYA - Transfer Y to accumulator -----------------------
 
-    fn executeTYA(self: *CPU, _: AddressingMode) u1 {
+    fn executeTYA(self: *CPU, _: AddressingMode) u2 {
         self.a = self.y;
         self.setFlagsZN(self.a);
 
@@ -713,7 +763,7 @@ pub const CPU = struct {
 
     // ------------------------- TSX - Transfer SP to X ----------------------------
 
-    fn executeTSX(self: *CPU, _: AddressingMode) u1 {
+    fn executeTSX(self: *CPU, _: AddressingMode) u2 {
         self.x = self.sp;
         self.setFlagsZN(self.x);
 
@@ -722,7 +772,7 @@ pub const CPU = struct {
 
     // ------------------------- TXS - Transfer X to SP ----------------------------
 
-    fn executeTXS(self: *CPU, _: AddressingMode) u1 {
+    fn executeTXS(self: *CPU, _: AddressingMode) u2 {
         self.sp = self.x;
 
         return 0; // No extra cycles
@@ -730,7 +780,7 @@ pub const CPU = struct {
 
     // -------------------- PHA - Push accumulator onto stack ----------------------
 
-    fn executePHA(self: *CPU, _: AddressingMode) u1 {
+    fn executePHA(self: *CPU, _: AddressingMode) u2 {
         self.stackPush(self.a);
 
         return 0; // No extra cycles
@@ -738,7 +788,7 @@ pub const CPU = struct {
 
     // ----------------- PHP - Push processor status onto stack --------------------
 
-    fn executePHP(self: *CPU, _: AddressingMode) u1 {
+    fn executePHP(self: *CPU, _: AddressingMode) u2 {
         self.stackPush(self.status);
 
         return 0; // No extra cycles
@@ -746,7 +796,7 @@ pub const CPU = struct {
 
     // -------------------- PLA - Pull accumulator from stack ----------------------
 
-    fn executePLA(self: *CPU, _: AddressingMode) u1 {
+    fn executePLA(self: *CPU, _: AddressingMode) u2 {
         self.a = self.stackPull();
         self.setFlagsZN(self.a);
 
@@ -755,7 +805,7 @@ pub const CPU = struct {
 
     // ----------------- PLP - Pull processor status from stack --------------------
 
-    fn executePLP(self: *CPU, _: AddressingMode) u1 {
+    fn executePLP(self: *CPU, _: AddressingMode) u2 {
         self.status = self.stackPull();
 
         return 0; // No extra cycles
@@ -763,43 +813,43 @@ pub const CPU = struct {
 
     // ---------------------------- AND - Logical AND ------------------------------
 
-    fn executeAND(self: *CPU, mode: AddressingMode) u1 {
+    fn executeAND(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
 
         self.a &= value;
         self.setFlagsZN(self.a);
 
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // --------------------------- EOR - Exclusive OR ------------------------------
 
-    fn executeEOR(self: *CPU, mode: AddressingMode) u1 {
+    fn executeEOR(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
 
         self.a ^= value;
         self.setFlagsZN(self.a);
 
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // ---------------------------- ORA - Logical OR -------------------------------
 
-    fn executeORA(self: *CPU, mode: AddressingMode) u1 {
+    fn executeORA(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
 
         self.a |= value;
         self.setFlagsZN(self.a);
 
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // ----------------------------- BIT - Bit test --------------------------------
 
-    fn executeBIT(self: *CPU, mode: AddressingMode) u1 {
+    fn executeBIT(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
         
@@ -812,7 +862,7 @@ pub const CPU = struct {
 
     // -------------------------- ADC - Add with carry -----------------------------
 
-    fn executeADC(self: *CPU, mode: AddressingMode) u1 {
+    fn executeADC(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
         const result_word: u16 = @as(u16, self.a) + @as(u16, value) + @intFromBool(self.getFlag(.C));
@@ -826,12 +876,12 @@ pub const CPU = struct {
         self.setFlag(.V, same_add_msb and diff_acc_msb);
         self.a = result_byte;
 
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // ------------------------ SBC - Subtract with carry --------------------------
 
-    fn executeSBC(self: *CPU, mode: AddressingMode) u1 {
+    fn executeSBC(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
         const result_word: u16 = @as(u16, self.a) + @as(u16, ~value) + @intFromBool(self.getFlag(.C));
@@ -845,24 +895,24 @@ pub const CPU = struct {
         self.setFlag(.V, same_add_msb and diff_acc_msb);
         self.a = result_byte;
 
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // ------------------------ CMP - Compare accumulator --------------------------
 
-    fn executeCMP(self: *CPU, mode: AddressingMode) u1 {
+    fn executeCMP(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
         const result: i16 = @as(i16, self.a) - @as(i16, value);
         
         self.setFlagsCZN(result);
 
-        return @intFromBool(addr_res.pageCrossed);
+        return @intFromBool(addr_res.page_crossed);
     }
 
     // ------------------------ CPX - Compare X register ---------------------------
 
-    fn executeCPX(self: *CPU, mode: AddressingMode) u1 {
+    fn executeCPX(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
         const result: i16 = @as(i16, self.x) - @as(i16, value);
@@ -874,7 +924,7 @@ pub const CPU = struct {
 
     // ------------------------ CPY - Compare Y register ---------------------------
 
-    fn executeCPY(self: *CPU, mode: AddressingMode) u1 {
+    fn executeCPY(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
         const result: i16 = @as(i16, self.y) - @as(i16, value);
@@ -886,7 +936,7 @@ pub const CPU = struct {
 
     // ------------------------- INC - Increment memory ----------------------------
 
-    fn executeINC(self: *CPU, mode: AddressingMode) u1 {
+    fn executeINC(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
         const result = value +% 1;
@@ -899,7 +949,7 @@ pub const CPU = struct {
 
     // ----------------------- INX - Increment X register --------------------------
 
-    fn executeINX(self: *CPU, _: AddressingMode) u1 {
+    fn executeINX(self: *CPU, _: AddressingMode) u2 {
         const result = self.x +% 1;
 
         self.x = result;
@@ -910,7 +960,7 @@ pub const CPU = struct {
 
     // ----------------------- INY - Increment Y register --------------------------
 
-    fn executeINY(self: *CPU, _: AddressingMode) u1 {
+    fn executeINY(self: *CPU, _: AddressingMode) u2 {
         const result = self.y +% 1;
 
         self.y = result;
@@ -921,7 +971,7 @@ pub const CPU = struct {
 
     // ------------------------- DEC - Decrement memory ----------------------------
 
-    fn executeDEC(self: *CPU, mode: AddressingMode) u1 {
+    fn executeDEC(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const value = self.readByte(addr_res.addr);
         const result = value -% 1;
@@ -934,7 +984,7 @@ pub const CPU = struct {
 
     // ----------------------- DEX - Decrement X register --------------------------
 
-    fn executeDEX(self: *CPU, _: AddressingMode) u1 {
+    fn executeDEX(self: *CPU, _: AddressingMode) u2 {
         const result = self.x -% 1;
 
         self.x = result;
@@ -945,7 +995,7 @@ pub const CPU = struct {
 
     // ----------------------- DEY - Decrement Y register --------------------------
 
-    fn executeDEY(self: *CPU, _: AddressingMode) u1 {
+    fn executeDEY(self: *CPU, _: AddressingMode) u2 {
         const result = self.y -% 1;
 
         self.y = result;
@@ -956,7 +1006,7 @@ pub const CPU = struct {
 
     // ----------------------- ASL - Arithmetic shift left -------------------------
 
-    fn executeASL(self: *CPU, mode: AddressingMode) u1 {
+    fn executeASL(self: *CPU, mode: AddressingMode) u2 {
         var result: u16 = undefined;
 
         if (mode == .IMP) {
@@ -981,7 +1031,7 @@ pub const CPU = struct {
 
     // ------------------------ LSR - Logical shift right --------------------------
 
-    fn executeLSR(self: *CPU, mode: AddressingMode) u1 {
+    fn executeLSR(self: *CPU, mode: AddressingMode) u2 {
         var result: u8 = undefined;
 
         if (mode == .IMP) {
@@ -1006,7 +1056,7 @@ pub const CPU = struct {
 
     // ---------------------------- ROL - Rotate left ------------------------------
 
-    fn executeROL(self: *CPU, mode: AddressingMode) u1 {
+    fn executeROL(self: *CPU, mode: AddressingMode) u2 {
         var result: u16 = undefined;
         const carry = @intFromBool(self.getFlag(.C));
 
@@ -1032,7 +1082,7 @@ pub const CPU = struct {
 
     // --------------------------- ROR - Rotate right ------------------------------
 
-    fn executeROR(self: *CPU, mode: AddressingMode) u1 {
+    fn executeROR(self: *CPU, mode: AddressingMode) u2 {
         var result: u8 = undefined;
         const carry = @intFromBool(self.getFlag(.C));
 
@@ -1058,7 +1108,7 @@ pub const CPU = struct {
 
     // ------------------------------- JMP - Jump ----------------------------------
 
-    fn executeJMP(self: *CPU, mode: AddressingMode) u1 {
+    fn executeJMP(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
 
         self.pc = addr_res.addr;
@@ -1068,7 +1118,7 @@ pub const CPU = struct {
 
     // ------------------------ JSR - Jump to subroutine ---------------------------
 
-    fn executeJSR(self: *CPU, mode: AddressingMode) u1 {
+    fn executeJSR(self: *CPU, mode: AddressingMode) u2 {
         const addr_res = self.resolveAddress(mode);
         const ret_addr = self.pc - 1;
         
@@ -1081,7 +1131,7 @@ pub const CPU = struct {
 
     // ---------------------- RTS - Return from subroutine -------------------------
 
-    fn executeRTS(self: *CPU, _: AddressingMode) u1 {
+    fn executeRTS(self: *CPU, _: AddressingMode) u2 {
         const low:  u16 = self.stackPull();
         const high: u16 = self.stackPull();
 
@@ -1090,9 +1140,57 @@ pub const CPU = struct {
         return 0; // No extra cycles
     }
 
+    // ----------------------- BCC - Branch if carry clear -------------------------
+
+    fn executeBCC(self: *CPU, _: AddressingMode) u2 {
+        return self.branchIf(.C, false);
+    }
+
+    // ------------------------ BCS - Branch if carry set --------------------------
+
+    fn executeBCS(self: *CPU, _: AddressingMode) u2 {
+        return self.branchIf(.C, true);
+    }
+
+    // ------------------------ BEQ - Branch if zero set ---------------------------
+
+    fn executeBEQ(self: *CPU, _: AddressingMode) u2 {
+        return self.branchIf(.Z, true);
+    }
+
+    // ---------------------- BMI - Branch if negative set -------------------------
+
+    fn executeBMI(self: *CPU, _: AddressingMode) u2 {
+        return self.branchIf(.N, true);
+    }
+
+    // --------------------- BNE - Branch if negative clear ------------------------
+
+    fn executeBNE(self: *CPU, _: AddressingMode) u2 {
+        return self.branchIf(.N, false);
+    }
+
+    // --------------------- BPL - Branch if negative clear ------------------------
+
+    fn executeBPL(self: *CPU, _: AddressingMode) u2 {
+        return self.branchIf(.N, false);
+    }
+
+    // --------------------- BVC - Branch if overflow clear ------------------------
+
+    fn executeBVC(self: *CPU, _: AddressingMode) u2 {
+        return self.branchIf(.V, false);
+    }
+
+    // ---------------------- BVS - Branch if overflow set -------------------------
+
+    fn executeBVS(self: *CPU, _: AddressingMode) u2 {
+        return self.branchIf(.V, true);
+    }
+
     // ------------------------ ??? - Unknown instruction --------------------------
 
-    fn unknownInstruction(_: *CPU, _:AddressingMode) u1 {
+    fn unknownInstruction(_: *CPU, _:AddressingMode) u2 {
         std.debug.print("Unknown instruction\n", .{});
         return 0;
     }
