@@ -1238,7 +1238,7 @@ pub const CPU = struct {
     // --------------------- BNE - Branch if negative clear ------------------------
 
     fn executeBNE(self: *CPU, _: AddressingMode) u2 {
-        return self.branchIf(.N, false);
+        return self.branchIf(.Z, false);
     }
 
     // --------------------- BPL - Branch if negative clear ------------------------
